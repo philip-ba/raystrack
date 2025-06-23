@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: raystrack
+Version: 0.1.0
+Summary: Lightweight Monte-Carlo view-factor solver with CPU, CUDA and BVH paths
+Author-email: Philip Balizki <philip.balizki@web.de>
+Project-URL: Homepage, https://github.com/youruser/raystrack
+Project-URL: Issues, https://github.com/youruser/raystrack/issues
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: numpy<3.0,>=1.24
+Requires-Dist: numba<0.60,>=0.59

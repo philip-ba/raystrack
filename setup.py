@@ -1,0 +1,28 @@
+import setuptools
+
+if __name__ == "__main__":
+    setuptools.setup(
+        name="raystrack",
+        version="0.1.0",
+        description="Lightweight Monte-Carlo view-factor solver with CPU, CUDA and BVH paths",
+        long_description=open("README.md", encoding="utf-8").read(),
+        long_description_content_type="text/markdown",
+        author="Philip Balizki",
+        author_email="philip.balizki@web.de",
+        license="MIT",
+        python_requires=">=3.9",
+        packages=setuptools.find_packages(where="src") or setuptools.find_packages(),
+        package_dir={"": "src"} if (setuptools.find_packages(where="src")) else {},
+        install_requires=[
+            "numpy>=1.24,<3.0",
+            "numba>=0.59,<0.60",
+        ],
+        project_urls={
+            "Homepage": "https://github.com/Philip-rptu/raystrack",
+        },
+        classifiers=[
+            "Programming Language :: Python :: 3",
+            "License :: OSI Approved :: MIT License",
+            "Operating System :: OS Independent",
+        ]
+    )
