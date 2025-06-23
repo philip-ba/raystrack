@@ -116,4 +116,42 @@ def view_factor_matrix_brute(*args, **kw):
     kw["use_bvh"] = False
     return view_factor_matrix(*args, **kw)
 
-__all__ = ["view_factor_matrix", "view_factor_matrix_brute"]
+def view_factor(sender, receiver, *args, **kw):
+    """Return F(sender->receiver) using the same Monte-Carlo algorithm.
+
+    Parameters
+    ----------
+    sender : tuple or list[tuple]
+        A single mesh tuple ``(name, V, F)`` or a list of such tuples
+        describing the emitting surface(s).
+    receiver : tuple or list[tuple]
+        A single mesh tuple or a list of tuples describing the receiving
+        surface(s).
+    *args, **kw :
+        Additional arguments forwarded to :func:`view_factor_matrix`.
+
+    Returns
+    -------
+    dict
+        A dictionary equivalent to the corresponding rows of
+        :func:`view_factor_matrix` but only containing entries for the
+        specified receiver surfaces.
+    """
+
+    senders = [sender] if isinstance(sender, tuple) else list(sender)
+    receivers = [receiver] if isinstance(receiver, tuple) else list(receiver)
+
+    vf_mat = view_factor_matrix(senders + receivers, *args, **kw)
+
+    rec_names = [r[0] for r in receivers]
+    out = {}
+    for sname, _, _ in senders:
+        row = vf_mat[sname]
+        out[sname] = {
+            k: v for k, v in row.items()
+            if any(k.startswith(rn) for rn in rec_names)
+        }
+
+    return out
+
+__all__ = ["view_factor_matrix", "view_factor_matrix_brute", "view_factor"]
