@@ -38,7 +38,7 @@ RAYS    = 254
 
 print(f"Running Monte-Carlo: samples={SAMPLES}, rays={RAYS}")
 t0 = time.time()
-VF = view_factor_matrix(meshes, samples=SAMPLES, rays=RAYS, use_bvh=False)
+VF = view_factor_matrix(meshes, samples=SAMPLES, rays=RAYS, use_bvh=False, max_iters=100)
 dt = time.time() - t0
 print(f"Done in {dt:.3f}s\n")
 
