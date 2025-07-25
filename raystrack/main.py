@@ -7,6 +7,13 @@ from typing import List, Tuple, Dict
 import numpy as np
 from numba import cuda
 
+# Try import if inside Rhino
+try:
+    import Rhino
+except:
+    pass
+
+
 from .utils.halton import cached_halton
 from .utils.geometry import flatten_receivers, flip_meshes
 from .utils.ray_builder import build_rays
@@ -241,9 +248,22 @@ def view_factor_matrix(
             if b > 0:
                 row[f"{name_r}_back"] = b
         result[name_e] = row
-        _log(
-            f"[{name_e}] total {time.time() - t_tot:.3f}s  (BVH={'on' if use_bvh else 'off'})"
-        )
+
+
+        surf_total   = len(meshes)
+        iter_count   = itr + 1             # how many Monte‑Carlo iterations ran
+        elapsed      = time.time() - t_tot
+
+        msg = (f"({idx_emit+1}/{surf_total}) [{name_e}] "
+               f"{iter_count} iter, {total_rays:,} rays -> "
+               f"{elapsed:0.3f}s  (BVH={'on' if use_bvh else 'off'})")
+
+        _log(msg)                          # console / VS Code
+        try:
+            import Rhino
+            Rhino.RhinoApp.WriteLine(msg)  # live in Rhino / Grasshopper
+        except Exception:
+            pass
 
     return result
 
@@ -455,6 +475,14 @@ def view_factor(sender, receiver, *args, **kw):
         _log(
             f"[{name_e}] total {time.time() - t_tot:.3f}s  (BVH={'on' if use_bvh else 'off'})"
         )
+
+        # Logging in Rhino
+        try:
+            Rhino.RhinoApp.WriteLine(
+                    f"[{name_e}] total {time.time() - t_tot:.3f}s  (BVH={'on' if use_bvh else 'off'})"
+                )
+        except:
+            pass
 
     return result
 
