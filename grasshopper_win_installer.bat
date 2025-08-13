@@ -1,134 +1,144 @@
 @echo off
-title Raystrack Windows Installer
-setlocal EnableExtensions EnableDelayedExpansion
+title Raystrack Windows Installer (Rhino 8)
+setlocal ENABLEEXTENSIONS ENABLEDELAYEDEXPANSION
 
-REM ===============================================
-REM Raystrack installer for Windows (Rhino 8 only)
-REM - Installs the package into Rhino 8 Python (RhinoCode env).
-REM - Copies all *.ghuser from rhino\components (all subfolders)
-REM   into %APPDATA%\Grasshopper\UserObjects\raystrack (flattened).
-REM ===============================================
+REM ============================================================
+REM Raystrack installer for Windows (Rhino 8)
+REM - Force-(re)installs the package into Rhino 8 Python.
+REM - Copies all *.ghuser from rhino\components (all subfolders).
+REM - Deletes any existing %APPDATA%\Grasshopper\UserObjects\raystrack
+REM ============================================================
 
-REM ----------------------------
-REM Resolve repo root directory
-REM ----------------------------
-set "LOG_PREFIX=[raystrack]"
+chcp 65001 >nul
+set "LOG=[raystrack]"
+
+echo %LOG% Starting installation...
 set "REPO_DIR=%~dp0"
-for %%# in ("%REPO_DIR%") do set "REPO_DIR=%%~f#"
 if "%REPO_DIR:~-1%"=="\" set "REPO_DIR=%REPO_DIR:~0,-1%"
+echo %LOG% Repo directory: "%REPO_DIR%"
 
-REM Optional override via first argument
-if not "%~1"=="" (
-  if exist "%~1\" (
-    set "REPO_DIR=%~1"
-    if "%REPO_DIR:~-1%"=="\" set "REPO_DIR=%REPO_DIR:~0,-1%"
-  )
+if not exist "%REPO_DIR%\pyproject.toml" (
+  echo %LOG% ERROR: pyproject.toml not found in "%REPO_DIR%".
+  goto :END_WITH_ERROR
 )
 
-echo %LOG_PREFIX% Starting installation...
-echo %LOG_PREFIX% Repo root: "%REPO_DIR%"
-echo %LOG_PREFIX% A console will stay open to show progress.
-echo.
-
-REM ----------------------------------------------
-REM 1) Install into Rhino 8 Python environment
-REM ----------------------------------------------
-echo %LOG_PREFIX% Installing into Rhino 8 Python environment...
-
-set "RHINO_ROOT=%USERPROFILE%\.rhinocode"
-set "RHINO_PY_EXE="
-
-REM Prefer the known 3.9 env
-if exist "%RHINO_ROOT%\py39-rh8\python.exe" (
-  set "RHINO_PY_EXE=%RHINO_ROOT%\py39-rh8\python.exe"
-)
-
-REM Fallback: pick the first match from a reverse-sorted list (likely newest)
-if not defined RHINO_PY_EXE (
-  for /f "delims=" %%i in ('
-    dir /b /s "%RHINO_ROOT%\py*-rh8\python.exe" 2^>nul ^| sort /r
-  ') do (
-    if not defined RHINO_PY_EXE set "RHINO_PY_EXE=%%i"
-  )
-)
-
-if defined RHINO_PY_EXE (
-  echo %LOG_PREFIX% Using Rhino Python at: "%RHINO_PY_EXE%"
-  "%RHINO_PY_EXE%" -m pip install --upgrade "%REPO_DIR%"
-  if errorlevel 1 (
-    echo %LOG_PREFIX% ERROR: pip install failed via Rhino Python interpreter.
-    echo %LOG_PREFIX% You can install inside Rhino 8 Python using:
-    echo     import sys, subprocess ^&^& subprocess.check_check_call([sys.executable,'-m','pip','install','--upgrade',r'%REPO_DIR%'])
-  ) else (
-    echo %LOG_PREFIX% Package install completed.
-  )
+REM -- Locate Rhino 8 Python (allow override via env var)
+set "RHINO_PY="
+if defined RAYSTRACK_RHINO_PY (
+  set "RHINO_PY=%RAYSTRACK_RHINO_PY%"
+  echo %LOG% Using Rhino Python from RAYSTRACK_RHINO_PY: "%RHINO_PY%"
 ) else (
-  echo %LOG_PREFIX% INFO: No Rhino 8 Python found under "%RHINO_ROOT%". Skipping package install.
-)
-
-echo.
-
-REM ----------------------------------------------------------------
-REM 2) Copy *.ghuser to Grasshopper UserObjects\raystrack
-REM    - Safe for spaces; builds a list then copies
-REM    - Allows override via RAYSTRACK_SRC env var
-REM ----------------------------------------------------------------
-set "DEFAULT_SRC=%REPO_DIR%\rhino\components"
-set "SRC_COMP=%DEFAULT_SRC%"
-if defined RAYSTRACK_SRC set "SRC_COMP=%RAYSTRACK_SRC%"
-
-set "GH_USEROBJ=%APPDATA%\Grasshopper\UserObjects\raystrack"
-
-echo %LOG_PREFIX% Source components: "%SRC_COMP%"
-echo %LOG_PREFIX% Target UserObjects: "%GH_USEROBJ%"
-
-if not exist "%APPDATA%\Grasshopper\UserObjects" (
-  mkdir "%APPDATA%\Grasshopper\UserObjects" >nul 2>&1
-)
-if not exist "%GH_USEROBJ%" (
-  echo %LOG_PREFIX% Creating UserObjects target: "%GH_USEROBJ%"
-  mkdir "%GH_USEROBJ%" >nul 2>&1
-)
-
-set /a GHUSER_COUNT=0
-set /a GHUSER_FAIL=0
-set "LISTFILE=%TEMP%\raystrack_ghuser_list.txt"
-del /q "%LISTFILE%" >nul 2>&1
-
-if exist "%SRC_COMP%\" (
-  echo %LOG_PREFIX% Searching for *.ghuser files (recursively)...
-  dir /S /B /A:-D "%SRC_COMP%\*.ghuser" > "%LISTFILE%" 2>nul
-) else (
-  echo %LOG_PREFIX% WARNING: Source folder not found: "%SRC_COMP%"
-  echo %LOG_PREFIX% Fallback: searching whole repo tree...
-  dir /S /B /A:-D "%REPO_DIR%\*.ghuser" > "%LISTFILE%" 2>nul
-)
-
-set "GHUSER_FOUND=0"
-for /f %%# in ('^<"%LISTFILE%" find /c /v ""') do set "GHUSER_FOUND=%%#"
-
-if %GHUSER_FOUND% gtr 0 (
-  echo %LOG_PREFIX% Found %GHUSER_FOUND% file(s). Copying...
-  for /f "usebackq delims=" %%F in ("%LISTFILE%") do (
-    echo %LOG_PREFIX% Copying: "%%~nxF"
-    copy /Y "%%~fF" "%GH_USEROBJ%\" >nul
-    if errorlevel 1 (
-      set /a GHUSER_FAIL+=1
-      echo %LOG_PREFIX% WARNING: Failed to copy "%%~fF"
-    ) else (
-      set /a GHUSER_COUNT+=1
+  set "RHINO_PY=%USERPROFILE%\.rhinocode\py39-rh8\python.exe"
+  if not exist "%RHINO_PY%" (
+    echo %LOG% Default py39-rh8 not found, searching for *rh8\python.exe...
+    for /f "delims=" %%P in ('dir /b /s "%USERPROFILE%\.rhinocode\py*-rh8\python.exe" 2^>nul') do (
+      set "RHINO_PY=%%P"
+      goto :FOUND_RHINO_PY
     )
+  ) else (
+    goto :FOUND_RHINO_PY
   )
-) else (
-  echo %LOG_PREFIX% NOTE: No *.ghuser files found under:
-  echo               "%SRC_COMP%"
-  echo               (and none in fallback "%REPO_DIR%")
 )
 
-del /q "%LISTFILE%" >nul 2>&1
-echo %LOG_PREFIX% Copy summary: %GHUSER_COUNT% succeeded, %GHUSER_FAIL% failed, %GHUSER_FOUND% discovered.
-echo.
+:FOUND_RHINO_PY
+if not exist "%RHINO_PY%" (
+  echo %LOG% ERROR: Could not find Rhino 8 Python under "%USERPROFILE%\.rhinocode".
+  echo %LOG% Tip: set RAYSTRACK_RHINO_PY to your Rhino 8 python.exe and re-run.
+  goto :END_WITH_ERROR
+)
+echo %LOG% Rhino Python: "%RHINO_PY%"
 
-echo %LOG_PREFIX% Done. Press any key to close this window.
+REM -- Ensure pip is present, then upgrade tooling (best effort)
+echo %LOG% Checking pip...
+"%RHINO_PY%" -m pip --version >nul 2>&1 || (
+  echo %LOG% Bootstrapping pip with ensurepip...
+  "%RHINO_PY%" -m ensurepip --upgrade || (
+    echo %LOG% ERROR: ensurepip failed. Cannot proceed.
+    goto :END_WITH_ERROR
+  )
+)
+
+echo %LOG% Upgrading pip/setuptools/wheel/build (best effort)...
+"%RHINO_PY%" -m pip install --upgrade pip setuptools wheel build >nul 2>&1
+
+REM -- Force-(re)install raystrack from this repo (overwrites existing)
+echo %LOG% Installing/overwriting raystrack in Rhino 8 Python...
+pushd "%REPO_DIR%" >nul
+"%RHINO_PY%" -m pip install --no-cache-dir --upgrade --force-reinstall --no-deps "%REPO_DIR%"
+set "INSTALL_RC=%ERRORLEVEL%"
+popd >nul
+if not "%INSTALL_RC%"=="0" (
+  echo %LOG% ERROR: pip install failed with code %INSTALL_RC%.
+  goto :END_WITH_ERROR
+)
+echo %LOG% Package installed (force-reinstalled) successfully.
+
+REM -- Prepare Grasshopper UserObjects destination (delete if exists)
+set "GH_USEROBJ_BASE=%APPDATA%\Grasshopper\UserObjects"
+set "DST_DIR=%GH_USEROBJ_BASE%\raystrack"
+
+if not exist "%APPDATA%\Grasshopper" mkdir "%APPDATA%\Grasshopper" 2>nul
+if not exist "%GH_USEROBJ_BASE%" mkdir "%GH_USEROBJ_BASE%" 2>nul
+
+if exist "%DST_DIR%" (
+  echo %LOG% Removing existing destination: "%DST_DIR%"
+  rmdir /S /Q "%DST_DIR%"
+  if exist "%DST_DIR%" (
+    echo %LOG% ERROR: Could not remove "%DST_DIR%".
+    goto :END_WITH_ERROR
+  )
+)
+
+echo %LOG% Creating destination: "%DST_DIR%"
+mkdir "%DST_DIR%" 2>nul || (
+  echo %LOG% ERROR: Could not create "%DST_DIR%".
+  goto :END_WITH_ERROR
+)
+
+REM -- Determine search root for .ghuser files
+set "PRIMARY_SRC=%REPO_DIR%\rhino\components"
+set "SEARCH_ROOT="
+if exist "%PRIMARY_SRC%" (
+  set "SEARCH_ROOT=%PRIMARY_SRC%"
+) else if exist "%REPO_DIR%\components" (
+  set "SEARCH_ROOT=%REPO_DIR%\components"
+) else (
+  set "SEARCH_ROOT=%REPO_DIR%"
+)
+
+echo %LOG% Searching for .ghuser files under: "%SEARCH_ROOT%"
+
+set /a FOUND=0
+set /a COPIED=0
+for /r "%SEARCH_ROOT%" %%F in (*.ghuser) do (
+  set /a FOUND+=1
+  echo %LOG% Copying "%%F"
+  copy /Y "%%F" "%DST_DIR%" >nul && ( set /a COPIED+=1 ) || (
+    echo %LOG% WARNING: Failed to copy: %%F
+  )
+)
+
+if "!FOUND!"=="0" (
+  echo %LOG% NOTE: No .ghuser files found under "%SEARCH_ROOT%".
+) else (
+  echo %LOG% Found !FOUND! .ghuser file^(s^); copied !COPIED! to "%DST_DIR%".
+)
+
+goto :END_OK
+
+
+:END_WITH_ERROR
+echo.
+echo %LOG% ==================== FAILED ====================
+echo %LOG% See messages above. Fix the issue and re-run.
+echo %LOG% Press any key to close.
+pause >nul
+exit /b 1
+
+:END_OK
+echo.
+echo %LOG% ==================== DONE ====================
+echo %LOG% Installation and UserObjects copy steps completed.
+echo %LOG% Press any key to close.
 pause >nul
 exit /b 0
