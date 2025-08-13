@@ -169,10 +169,11 @@ def view_factor_matrix(
             n_rays = cells * rays
             orig = np.empty((n_rays, 3), np.float32)
             dire = np.empty_like(orig)
-            rng_uni = (
-                np.random.default_rng(seed + idx_emit + itr)
-                .random(n_rays * 2 + cells, dtype=np.float32)
-            )
+
+            # Cranley–Patterson shifts for randomized QMC
+            rng = np.random.default_rng(seed + idx_emit + itr)
+            cp_grid = rng.random(2, dtype=np.float32)
+            cp_dims = rng.random(5, dtype=np.float32)
 
             build_rays(
                 u_grid,
@@ -181,11 +182,12 @@ def view_factor_matrix(
                 V_e[F_e[:, 0]],
                 V_e[F_e[:, 1]],
                 V_e[F_e[:, 2]],
-                rng_uni,
                 g,
                 rays,
                 orig,
                 dire,
+                cp_grid,
+                cp_dims,
             )
 
             hits_f_iter = np.zeros_like(hits_f)
@@ -414,10 +416,9 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
             n_rays = cells * rays
             orig = np.empty((n_rays, 3), np.float32)
             dire = np.empty_like(orig)
-            rng_uni = (
-                np.random.default_rng(seed + idx_emit + itr)
-                .random(n_rays * 2 + cells, dtype=np.float32)
-            )
+            rng = np.random.default_rng(seed + idx_emit + itr)
+            cp_grid = rng.random(2, dtype=np.float32)
+            cp_dims = rng.random(5, dtype=np.float32)
 
             build_rays(
                 u_grid,
@@ -426,11 +427,12 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
                 V_e[F_e[:, 0]],
                 V_e[F_e[:, 1]],
                 V_e[F_e[:, 2]],
-                rng_uni,
                 g,
                 rays,
                 orig,
                 dire,
+                cp_grid,
+                cp_dims,
             )
 
             hits_f_iter = np.zeros_like(hits_f)
