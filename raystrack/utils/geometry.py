@@ -3,11 +3,24 @@ from typing import List, Tuple
 import numpy as np
 
 
-def flatten_receivers(meshes, idx_emit):
-    """Return flattened receiver triangle arrays excluding the emitter."""
+
+def flatten_receivers(meshes, idx_emit, skip: Iterable[int] = ()):  # type: ignore[assignment]
+    """Return flattened receiver triangle arrays excluding the emitter.
+
+    Parameters
+    ----------
+    meshes : list
+        List of ``(name, V, F)`` mesh tuples.
+    idx_emit : int
+        Index of the emitting surface in ``meshes``.
+    skip : Iterable[int], optional
+        Additional surface indices to exclude from the receiver list.
+    """
     v0s, e1s, e2s, sids, norms = [], [], [], [], []
+    skip_set = set(skip)
+    skip_set.add(idx_emit)
     for sid, (_, V, F) in enumerate(meshes):
-        if sid == idx_emit:
+        if sid in skip_set:
             continue
         v0 = V[F[:, 0]].astype(np.float32)
         v1 = V[F[:, 1]].astype(np.float32)
@@ -21,6 +34,15 @@ def flatten_receivers(meshes, idx_emit):
         n = np.cross(v1 - v0, v2 - v0)
         n /= np.linalg.norm(n, axis=1)[:, None]
         norms.append(n.astype(np.float32))
+
+    if not v0s:
+        return (
+            np.empty((0, 3), np.float32),
+            np.empty((0, 3), np.float32),
+            np.empty((0, 3), np.float32),
+            np.empty((0,), np.int32),
+            np.empty((0, 3), np.float32),
+        )
 
     v0 = np.concatenate(v0s)
     e1 = np.concatenate(e1s)

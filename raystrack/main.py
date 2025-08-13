@@ -121,9 +121,16 @@ def view_factor_matrix(
     for idx_emit, (name_e, V_e, F_e) in enumerate(meshes):
         t_tot = time.time()
 
-        skip = set(range(idx_emit + 1))
+        # When reciprocity is enabled, skip receivers from previous surfaces
+        # to avoid double work (we will fill them via reciprocity).
+        # Otherwise, include all other surfaces (only skip the emitter itself).
+        if reciprocity:
+            skip = set(range(idx_emit + 1))
+            receivers = [j for j in range(idx_emit + 1, len(meshes))]
+        else:
+            skip = set()
+            receivers = [j for j in range(0, len(meshes)) if j != idx_emit]
         v0, e1, e2, sid, nrm = flatten_receivers(meshes, idx_emit, skip)
-        receivers = [j for j in range(idx_emit + 1, len(meshes))]
         n_surf = len(meshes)
         hits_f = np.zeros(n_surf, np.int64)
         hits_b = np.zeros_like(hits_f)
@@ -371,7 +378,10 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
     for idx_emit, (name_e, V_e, F_e) in enumerate(meshes[: len(senders)]):
         t_tot = time.time()
 
-        v0, e1, e2, sid, nrm = flatten_receivers(meshes, idx_emit)
+        # Only consider receivers, not other senders, to avoid wasted tracing.
+        # flatten_receivers always excludes the emitter itself.
+        skip_senders = set(range(len(senders)))
+        v0, e1, e2, sid, nrm = flatten_receivers(meshes, idx_emit, skip_senders)
         n_surf = len(meshes)
         hits_f = np.zeros(n_surf, np.int64)
         hits_b = np.zeros_like(hits_f)
