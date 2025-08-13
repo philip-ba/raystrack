@@ -5,7 +5,7 @@ import sys
 import time
 from typing import List, Tuple, Dict
 import numpy as np
-from numba import cuda
+from numba import cuda, set_num_threads
 
 # Try import if inside Rhino
 try:
@@ -82,6 +82,7 @@ def view_factor_matrix(
     flip_faces: bool = False,
     max_iters: int = 1,
     tol: float = 1e-5,
+    reciprocity: bool = False,
 ) -> Dict[str, Dict[str, float]]:
     """Compute ``F(i→j)`` for every pair of surfaces in ``meshes``.
 
@@ -92,20 +93,46 @@ def view_factor_matrix(
         previous behaviour.
     tol : float, optional
         Stop iterating when all view factors change by less than ``tol``.
+    reciprocity : bool, optional
+        Also compute inverse view factors via reciprocity. Defaults to ``False``.
     """
     have_cuda = cuda.is_available()
-    result: Dict[str, Dict[str, float]] = {}
+    if not have_cuda:
+        set_num_threads(1)
+    result: Dict[str, Dict[str, float]] = {name: {} for name, _, _ in meshes}
 
     if flip_faces:
         meshes = flip_meshes(meshes)
 
+    # Pre-compute surface areas only when reciprocity is requested
+    areas = None
+    if reciprocity:
+        areas = []
+        for _, V_a, F_a in meshes:
+            A_a = 0.5 * np.linalg.norm(
+                np.cross(
+                    V_a[F_a[:, 1]] - V_a[F_a[:, 0]],
+                    V_a[F_a[:, 2]] - V_a[F_a[:, 0]],
+                ),
+                axis=1,
+            )
+            areas.append(float(A_a.sum()))
+
     for idx_emit, (name_e, V_e, F_e) in enumerate(meshes):
         t_tot = time.time()
 
-        v0, e1, e2, sid, nrm = flatten_receivers(meshes, idx_emit)
+        skip = set(range(idx_emit + 1))
+        v0, e1, e2, sid, nrm = flatten_receivers(meshes, idx_emit, skip)
+        receivers = [j for j in range(idx_emit + 1, len(meshes))]
         n_surf = len(meshes)
         hits_f = np.zeros(n_surf, np.int64)
         hits_b = np.zeros_like(hits_f)
+
+        if len(v0) == 0:
+            _log(
+                f"({idx_emit+1}/{len(meshes)}) [{name_e}] 0 iter, 0 rays -> 0.000s  (BVH={'on' if use_bvh else 'off'})"
+            )
+            continue
 
         if use_bvh:
             bb_min, bb_max, left, right, start, cnt, perm = build_bvh(v0, e1, e2)
@@ -238,16 +265,17 @@ def view_factor_matrix(
             prev_b = curr_b.copy()
 
         row = {}
-        for j, (name_r, _, _) in enumerate(meshes):
-            if j == idx_emit:
-                continue
+        for j in receivers:
+            name_r, _, _ = meshes[j]
             f = hits_f[j] / float(total_rays)
             b = hits_b[j] / float(total_rays)
             if f > 0:
                 row[f"{name_r}_front"] = f
+                if reciprocity:
+                    result[name_r][f"{name_e}_front"] = f * (areas[idx_emit] / areas[j])
             if b > 0:
                 row[f"{name_r}_back"] = b
-        result[name_e] = row
+        result[name_e].update(row)
 
 
         surf_total   = len(meshes)
@@ -272,8 +300,8 @@ def view_factor_matrix_brute(*args, **kw):
     kw["use_bvh"] = False
     return view_factor_matrix(*args, **kw)
 
-def view_factor(sender, receiver, *args, **kw):
-    """Return F(sender->receiver) using the same Monte-Carlo algorithm.
+def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
+    """Return F(sender→receiver) using the same Monte-Carlo algorithm.
 
     Parameters
     ----------
@@ -289,13 +317,16 @@ def view_factor(sender, receiver, *args, **kw):
         Maximum number of Monte-Carlo iterations. Defaults to ``1``.
     tol : float, optional
         Stop iterating when all view factors change less than ``tol``.
+    reciprocity : bool, optional
+        Also compute inverse view factors via reciprocity. Defaults to ``False``.
 
     Returns
     -------
     dict
         A dictionary equivalent to the corresponding rows of
-        :func:`view_factor_matrix` but only containing entries for the
-        specified receiver surfaces.
+        :func:`view_factor_matrix`. By default only the sender entries are
+        included; setting ``reciprocity=True`` adds entries for the receiver
+        surfaces computed via reciprocity.
     """
 
     senders = [sender] if isinstance(sender, tuple) else list(sender)
@@ -315,11 +346,27 @@ def view_factor(sender, receiver, *args, **kw):
 
     meshes = senders + receivers
     have_cuda = cuda.is_available()
+    if not have_cuda:
+        set_num_threads(1)
 
     if flip_faces:
         meshes = flip_meshes(meshes)
 
-    result: Dict[str, Dict[str, float]] = {}
+    if reciprocity:
+        result: Dict[str, Dict[str, float]] = {name: {} for name, _, _ in meshes}
+        areas = []
+        for _, V_a, F_a in meshes:
+            A_a = 0.5 * np.linalg.norm(
+                np.cross(
+                    V_a[F_a[:, 1]] - V_a[F_a[:, 0]],
+                    V_a[F_a[:, 2]] - V_a[F_a[:, 0]],
+                ),
+                axis=1,
+            )
+            areas.append(float(A_a.sum()))
+    else:
+        result: Dict[str, Dict[str, float]] = {}
+        areas = None
 
     for idx_emit, (name_e, V_e, F_e) in enumerate(meshes[: len(senders)]):
         t_tot = time.time()
@@ -468,6 +515,8 @@ def view_factor(sender, receiver, *args, **kw):
             b = hits_b[j] / float(total_rays)
             if f > 0:
                 row[f"{name_r}_front"] = f
+                if reciprocity:
+                    result[name_r][f"{name_e}_front"] = f * (areas[idx_emit] / areas[j])
             if b > 0:
                 row[f"{name_r}_back"] = b
 

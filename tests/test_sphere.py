@@ -1,5 +1,6 @@
 import math, time
 import numpy as np
+from typing import List, Tuple
 from raystrack.main import view_factor_matrix
 
 def gen_sphere_patches(lat_n: int, lon_n: int, radius: float = 1.0):
@@ -7,53 +8,69 @@ def gen_sphere_patches(lat_n: int, lon_n: int, radius: float = 1.0):
     Return a list of (name, V, F) for each triangular patch on a sphere of
     given radius, subdivided in latitude (lat_n) and longitude (lon_n).
     Normals are flipped so they point inward (toward the center).
+    Generates no zero-area patches.
     """
-    meshes = []
+    assert lat_n >= 2 and lon_n >= 3, "Need at least 2 lat bands and 3 lon slices."
+
+    meshes: List[Tuple[str, np.ndarray, np.ndarray]] = []
     idx = 0
+    F = np.array([[0, 1, 2]], dtype=np.int32)
+    eps = 1e-12
+
+    def inward_or_flip(V: np.ndarray) -> np.ndarray:
+        n = np.cross(V[1] - V[0], V[2] - V[0])
+        if np.dot(n, -V[0]) < 0:
+            V = V[[0, 2, 1]]
+        return V
+
+    def add_tri(a, b, c):
+        nonlocal idx
+        V = np.vstack((a, b, c)).astype(np.float32)
+        # area guard
+        if np.linalg.norm(np.cross(V[1] - V[0], V[2] - V[0])) <= eps:
+            return
+        V = inward_or_flip(V)
+        meshes.append((f"patch_{idx}", V, F))
+        idx += 1
+
     for i in range(lat_n):
-        phi0 = math.pi *  i   / lat_n
-        phi1 = math.pi * (i+1)/ lat_n
+        phi0 = math.pi *  i    / lat_n
+        phi1 = math.pi * (i+1) / lat_n
+
+        # ring points for this band
+        ring0 = []
+        ring1 = []
         for j in range(lon_n):
-            th0 = 2*math.pi *  j    / lon_n
-            th1 = 2*math.pi * (j+1) / lon_n
+            th0 = 2 * math.pi *  j      / lon_n
+            th1 = 2 * math.pi * (j + 1) / lon_n
 
-            # four corner points of this quad (on the sphere surface)
-            p00 = np.array([
-                math.sin(phi0)*math.cos(th0),
-                math.sin(phi0)*math.sin(th0),
-                math.cos(phi0)
-            ])*radius
-            p01 = np.array([
-                math.sin(phi0)*math.cos(th1),
-                math.sin(phi0)*math.sin(th1),
-                math.cos(phi0)
-            ])*radius
-            p10 = np.array([
-                math.sin(phi1)*math.cos(th0),
-                math.sin(phi1)*math.sin(th0),
-                math.cos(phi1)
-            ])*radius
-            p11 = np.array([
-                math.sin(phi1)*math.cos(th1),
-                math.sin(phi1)*math.sin(th1),
-                math.cos(phi1)
-            ])*radius
+            p00 = np.array([math.sin(phi0) * math.cos(th0),
+                            math.sin(phi0) * math.sin(th0),
+                            math.cos(phi0)]) * radius
+            p01 = np.array([math.sin(phi0) * math.cos(th1),
+                            math.sin(phi0) * math.sin(th1),
+                            math.cos(phi0)]) * radius
+            p10 = np.array([math.sin(phi1) * math.cos(th0),
+                            math.sin(phi1) * math.sin(th0),
+                            math.cos(phi1)]) * radius
+            p11 = np.array([math.sin(phi1) * math.cos(th1),
+                            math.sin(phi1) * math.sin(th1),
+                            math.cos(phi1)]) * radius
 
-            # split quad into two triangles
-            for tri in ((p00,p10,p01), (p11,p01,p10)):
-                V = np.vstack(tri).astype(np.float32)   # (3,3)
-                # ensure winding so normal = cross(v1-v0, v2-v0) points inward
-                n = np.cross(V[1]-V[0], V[2]-V[0])
-                # inward direction is toward -V[0] for a sphere at origin
-                if np.dot(n, -V[0]) < 0:
-                    # flip the last two vertices
-                    V = V[[0,2,1]]
-                F = np.array([[0,1,2]], np.int32)
-                meshes.append((f"patch_{idx}", V, F))
-                idx += 1
+            # North cap (i == 0): triangles fan from north pole to first ring
+            if i == 0:
+                north = np.array([0.0, 0.0, 1.0]) * radius
+                add_tri(north, p10, p11)
+            # South cap (i == lat_n - 1): triangles fan from last ring to south pole
+            elif i == lat_n - 1:
+                south = np.array([0.0, 0.0, -1.0]) * radius
+                add_tri(p00, p01, south)
+            else:
+                # Regular quads split into two triangles
+                add_tri(p00, p10, p01)
+                add_tri(p11, p01, p10)
 
     return meshes
-
 if __name__ == "__main__":
     # build ~400 patches
     LAT = 10
@@ -69,7 +86,7 @@ if __name__ == "__main__":
 
     print(f"Tracing from patch_0 with {SAMPLES**2*RAYS:,d} rays…")
     t0 = time.time()
-    VF = view_factor_matrix(meshes, samples=SAMPLES, rays=RAYS, use_bvh=False)
+    VF = view_factor_matrix(meshes, samples=SAMPLES, rays=RAYS, use_bvh=True, max_iters=1000, tol=1e-5, reciprocity=True)
     elapsed = time.time() - t0
 
     # collect all front+back view-factors from patch_1
