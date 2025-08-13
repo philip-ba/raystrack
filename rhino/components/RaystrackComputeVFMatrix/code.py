@@ -1,3 +1,35 @@
+# Raystrack: A Plugin for Radiative View Factors (AGPL)
+# This file is part of Raystrack.
+
+# Copyright (c) 2025, Philip Balizki.
+# You should have received a copy of the GNU Affero General Public License
+# along with Raystrack; If not, see <http://www.gnu.org/licenses/>.
+
+# @license AGPL-3.0-or-later <https://spdx.org/licenses/AGPL-3.0-or-later>
+
+"""
+Compute a full pairwise view-factor matrix among input meshes/surfaces.
+
+-
+
+    Args:
+        _breps: List of Breps/Meshes/Guids for surfaces to include.
+        _names: List of unique names corresponding to _breps.
+        _samples: Integer sample count per face (default 256).
+        _rays: Integer rays per sample (default 256).
+        _seed: Integer RNG seed (default 0).
+        _gpu_threads: Optional integer GPU thread hint.
+        _use_bvh: Boolean; accelerate with BVH (default False).
+        _flip_faces: Boolean; flip mesh face normals (default False).
+        _max_iters: Integer max iterations (default 1).
+        _tol: Float tolerance for convergence (default 1e-5).
+        _reciprocity: Enforce reciprocity adjustment (bool, default False).
+        run: Boolean to trigger the computation.
+
+    Returns:
+        vf_matrix: Dictionary of the computed view-factor matrix -> {sender: {receiver -> value}}.
+"""
+
 import sys
 import Rhino.Geometry as rg
 import scriptcontext as sc
@@ -5,6 +37,36 @@ import System
 import numpy as np
 from Grasshopper.Kernel import GH_RuntimeMessageLevel as RML
 from raystrack.main import view_factor_matrix
+
+ghenv.Component.Name = 'RaystrackComputeVFMatrix'
+ghenv.Component.NickName = 'RaystrackComputeVFMatrix'
+ghenv.Component.Message = '1.0.0'
+ghenv.Component.Category = 'Raystrack'
+ghenv.Component.SubCategory = '1 :: View Factors'
+ghenv.Component.AdditionalHelpFromDocStrings = '2'
+
+try:
+    input_help = {
+        '_breps': 'Breps/Meshes or Guids list of all surfaces.',
+        '_names': 'Unique names matching each brep/mesh (list of strings).',
+        '_samples': 'Samples per face (int, default 256).',
+        '_rays': 'Rays per sample (int, default 256).',
+        '_seed': 'Random seed (int, default 0).',
+        '_gpu_threads': 'Optional GPU thread hint (int).',
+        '_use_bvh': 'Use BVH acceleration (bool).',
+        '_flip_faces': 'Flip mesh face normals (bool).',
+        '_max_iters': 'Max iterations (int).',
+        '_tol': 'Tolerance for convergence (float).',
+        '_reciprocity': 'Enforce reciprocity (bool).',
+        'run': 'Trigger the computation (bool).'
+    }
+    for p in ghenv.Component.Params.Input:
+        name = getattr(p, 'Name', '') or getattr(p, 'NickName', '')
+        key = name if name in input_help else f'_{name}'
+        if key in input_help:
+            p.Description = input_help[key]
+except Exception:
+    pass
 
 def error(msg):
     ghenv.Component.AddRuntimeMessage(RML.Error, msg)
@@ -102,6 +164,12 @@ _use_bvh = bool(_use_bvh) if _use_bvh is not None else False
 
 _flip_faces = bool(_flip_faces) if _flip_faces is not None else False
 
+_max_iters = int(_max_iters) if _max_iters is not None else 1
+
+_tol = float(_tol) if _tol is not None else 1e-5
+
+_reciprocity = _reciprocity if _reciprocity is not None else False
+
 meshes = []
 meshes_np = []
 for obj, name in zip(_breps, _names):
@@ -134,7 +202,12 @@ if run:
         seed=_seed,
         gpu_threads=_gpu_threads,
         use_bvh=_use_bvh,
-        flip_faces=_flip_faces
+        flip_faces=_flip_faces,
+        max_iters=_max_iters,
+        tol=_tol,
+        reciprocity=_reciprocity
+
     )
     vf_matrix = [vf_result]
+
 
