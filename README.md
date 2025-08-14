@@ -37,7 +37,7 @@ macOS (Rhino 8)
      (with sensible fallbacks for other layouts).
    - You can override the interpreter by setting `RAYSTRACK_RHINO_PY` to the
      Rhino 8 Python path.
-4) Launch Rhino 8 → Grasshopper. The user objects appear under “raystrack”.
+4) Launch Rhino 8 -> Grasshopper. The user objects appear under “raystrack”.
 
 Notes
 - CUDA is optional. On Windows with an NVIDIA GPU, install a recent NVIDIA
