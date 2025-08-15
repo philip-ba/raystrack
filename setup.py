@@ -8,8 +8,8 @@ if __name__ == "__main__":
         long_description=open("README.md", encoding="utf-8").read(),
         long_description_content_type="text/markdown",
         author="Philip Balizki",
-        author_email="philip.balizki@gmail.com",
-        license="GPL-3.0-only",
+        author_email="philip.balizki@web.de",
+        license="MIT",
         python_requires=">=3.9",
         packages=setuptools.find_packages(where="src") or setuptools.find_packages(),
         package_dir={"": "src"} if (setuptools.find_packages(where="src")) else {},
@@ -22,9 +22,7 @@ if __name__ == "__main__":
         },
         classifiers=[
             "Programming Language :: Python :: 3",
-            "Programming Language :: Python :: 3 :: Only",
-            "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+            "License :: OSI Approved :: MIT License",
             "Operating System :: OS Independent",
-            "Topic :: Scientific/Engineering",
         ]
     )
