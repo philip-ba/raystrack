@@ -5,20 +5,22 @@ import numpy as np
 
 
 def flatten_receivers(meshes, idx_emit, skip: Iterable[int] = ()):  # type: ignore[assignment]
-    """Return flattened receiver triangle arrays excluding the emitter.
+    """Return flattened receiver triangle arrays.
 
     Parameters
     ----------
     meshes : list
         List of ``(name, V, F)`` mesh tuples.
     idx_emit : int
-        Index of the emitting surface in ``meshes``.
+        Index of the emitting surface in ``meshes`` (kept for callers that
+        want to decide whether to exclude it or not).
     skip : Iterable[int], optional
-        Additional surface indices to exclude from the receiver list.
+        Surface indices to exclude from the receiver list. Note: the emitter
+        is NOT excluded automatically anymore; callers must pass it here when
+        they want to exclude the whole emitting mesh.
     """
     v0s, e1s, e2s, sids, norms = [], [], [], [], []
     skip_set = set(skip)
-    skip_set.add(idx_emit)
     for sid, (_, V, F) in enumerate(meshes):
         if sid in skip_set:
             continue

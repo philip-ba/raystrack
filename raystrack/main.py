@@ -259,8 +259,8 @@ def view_factor_matrix(
         set_num_threads(1)
     result: Dict[str, Dict[str, float]] = {name: {} for name, _, _ in meshes}
 
-    if flip_faces:
-        meshes = flip_meshes(meshes)
+    # Note: flip only the current emitter during emission sampling.
+    # Receivers remain unmodified so their normals/front-back stay consistent.
 
     # Pre-compute surface areas only when reciprocity is requested
     areas = None
@@ -284,10 +284,12 @@ def view_factor_matrix(
         # to avoid double work (we will fill them via reciprocity).
         # Otherwise, include all other surfaces (only skip the emitter itself).
         if reciprocity:
+            # Skip all previous surfaces including the emitter; fill via reciprocity later
             skip = set(range(idx_emit + 1))
             receivers = [j for j in range(idx_emit + 1, len(meshes))]
         else:
-            skip = set()
+            # Skip only the emitter itself; include all other surfaces
+            skip = {idx_emit}
             receivers = [j for j in range(0, len(meshes)) if j != idx_emit]
         v0, e1, e2, sid, nrm = flatten_receivers(meshes, idx_emit, skip)
         n_surf = len(meshes)
@@ -316,8 +318,11 @@ def view_factor_matrix(
         else:
             bb_min = bb_max = left = right = start = cnt = None
 
+        # Use flipped winding only for the emitter if requested
+        F_emit = F_e[:, [0, 2, 1]] if flip_faces else F_e
+
         A = 0.5 * np.linalg.norm(
-            np.cross(V_e[F_e[:, 1]] - V_e[F_e[:, 0]], V_e[F_e[:, 2]] - V_e[F_e[:, 0]]),
+            np.cross(V_e[F_emit[:, 1]] - V_e[F_emit[:, 0]], V_e[F_emit[:, 2]] - V_e[F_emit[:, 0]]),
             axis=1,
         )
         cdf = np.cumsum(A) / A.sum()
@@ -361,9 +366,9 @@ def view_factor_matrix(
                 d_u_grid = cuda.to_device(u_grid)
                 d_v_grid = cuda.to_device(v_grid)
                 d_cdf = cuda.to_device(cdf.astype(np.float32))
-                d_tri_a = cuda.to_device(V_e[F_e[:, 0]])
-                d_tri_b = cuda.to_device(V_e[F_e[:, 1]])
-                d_tri_c = cuda.to_device(V_e[F_e[:, 2]])
+                d_tri_a = cuda.to_device(V_e[F_emit[:, 0]])
+                d_tri_b = cuda.to_device(V_e[F_emit[:, 1]])
+                d_tri_c = cuda.to_device(V_e[F_emit[:, 2]])
 
         for itr in range(max_iters):
             n_rays = cells * rays
@@ -418,9 +423,9 @@ def view_factor_matrix(
                     u_grid,
                     v_grid,
                     cdf.astype(np.float32),
-                    V_e[F_e[:, 0]],
-                    V_e[F_e[:, 1]],
-                    V_e[F_e[:, 2]],
+                    V_e[F_emit[:, 0]],
+                    V_e[F_emit[:, 1]],
+                    V_e[F_emit[:, 2]],
                     g,
                     rays,
                     orig,
@@ -703,8 +708,7 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
     if not have_cuda:
         set_num_threads(1)
 
-    if flip_faces:
-        meshes = flip_meshes(meshes)
+    # Note: flip only sender(s) during emission sampling below; receivers stay as-is.
 
     if reciprocity:
         result: Dict[str, Dict[str, float]] = {name: {} for name, _, _ in meshes}
@@ -726,9 +730,10 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
     for idx_emit, (name_e, V_e, F_e) in enumerate(meshes[: len(senders)]):
         t_tot = time.time()
 
-        # Only consider receivers, not other senders, to avoid wasted tracing.
-        # flatten_receivers always excludes the emitter itself.
-        skip_senders = set(range(len(senders)))
+        # Only consider receivers, not other senders. Allow the current sender's
+        # triangles to remain as receivers (only the exact sending triangle is
+        # implicitly ignored by the ray t>eps test).
+        skip_senders = set(range(len(senders))) - {idx_emit}
         v0, e1, e2, sid, nrm = flatten_receivers(meshes, idx_emit, skip_senders)
         n_surf = len(meshes)
         hits_f = np.zeros(n_surf, np.int64)
@@ -748,8 +753,11 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
         else:
             bb_min = bb_max = left = right = start = cnt = None
 
+        # Use flipped winding only for the sender if requested
+        F_emit = F_e[:, [0, 2, 1]] if flip_faces else F_e
+
         A = 0.5 * np.linalg.norm(
-            np.cross(V_e[F_e[:, 1]] - V_e[F_e[:, 0]], V_e[F_e[:, 2]] - V_e[F_e[:, 0]]),
+            np.cross(V_e[F_emit[:, 1]] - V_e[F_emit[:, 0]], V_e[F_emit[:, 2]] - V_e[F_emit[:, 0]]),
             axis=1,
         )
         cdf = np.cumsum(A) / A.sum()
@@ -775,9 +783,9 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
                 u_grid,
                 v_grid,
                 cdf.astype(np.float32),
-                V_e[F_e[:, 0]],
-                V_e[F_e[:, 1]],
-                V_e[F_e[:, 2]],
+                V_e[F_emit[:, 0]],
+                V_e[F_emit[:, 1]],
+                V_e[F_emit[:, 2]],
                 g,
                 rays,
                 orig,
