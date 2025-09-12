@@ -71,6 +71,133 @@ def _log(msg: str) -> None:
     print(msg)
 
 
+def _enforce_reciprocity_and_rowsum(result: Dict[str, Dict[str, float]],
+                                    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
+                                    areas: List[float] | None,
+                                    tol: float = 1e-10,
+                                    max_iter: int = 500) -> None:
+    """In-place adjust result so that totals per row sum to 1 and reciprocity holds.
+
+    This applies Option B: operate on G = diag(A) F, symmetrize, then find a
+    diagonal scaling D so that row sums of D G D equal the target areas A. Then
+    convert back to F' = diag(A)^{-1} (D G D). Front/back entries in ``result``
+    are scaled proportionally to match the new per-pair totals.
+
+    Notes
+    - Uses only the totals per receiver (front+back). If a pair had zero total
+      but the adjusted total is positive, assigns it to the "back" entry.
+    - ``areas`` may be None: then compute from meshes.
+    - Operates on all meshes in order; requires names in ``result`` to match.
+    """
+    n = len(meshes)
+    names = [m[0] for m in meshes]
+    name_to_idx = {name: i for i, name in enumerate(names)}
+
+    # Areas
+    if areas is None:
+        areas = []
+        for _, V_a, F_a in meshes:
+            A_a = 0.5 * np.linalg.norm(
+                np.cross(
+                    V_a[F_a[:, 1]] - V_a[F_a[:, 0]],
+                    V_a[F_a[:, 2]] - V_a[F_a[:, 0]],
+                ),
+                axis=1,
+            )
+            areas.append(float(A_a.sum()))
+    A = np.asarray(areas, dtype=np.float64)
+
+    # Build F (totals per pair, summing front+back)
+    F = np.zeros((n, n), dtype=np.float64)
+
+    def base_of(key: str) -> str:
+        if key.endswith("_front"):
+            return key[:-6]
+        if key.endswith("_back"):
+            return key[:-5]
+        return key
+
+    for si, sname in enumerate(names):
+        row = result.get(sname, {})
+        if not isinstance(row, dict):
+            continue
+        accum: Dict[str, float] = {}
+        for rkey, val in row.items():
+            b = base_of(rkey)
+            accum[b] = accum.get(b, 0.0) + float(val)
+        for bname, v in accum.items():
+            j = name_to_idx.get(bname, None)
+            if j is None:
+                continue
+            F[si, j] = v
+
+    # Form G and symmetrize
+    G = (A[:, None] * F)
+    G = 0.5 * (G + G.T)
+
+    # Symmetric scaling to match row sums = A
+    d = np.ones(n, dtype=np.float64)
+    for _ in range(max_iter):
+        row = d * (G @ d)
+        row = np.maximum(row, 1e-30)
+        upd = A / row
+        d_new = d * np.sqrt(upd)
+        if np.max(np.abs(d_new - d)) < tol:
+            d = d_new
+            break
+        d = d_new
+
+    Gp = (d[:, None] * G) * d[None, :]
+    Fp = Gp / A[:, None]
+
+    # Redistribute back into result proportionally to original front/back
+    for si, sname in enumerate(names):
+        row = result.get(sname, {})
+        # Build per-base front/back values
+        fb: Dict[str, Tuple[float, float]] = {}
+        for rkey, val in row.items():
+            if rkey.endswith("_front"):
+                base = rkey[:-6]
+                cur_f, cur_b = fb.get(base, (0.0, 0.0))
+                fb[base] = (cur_f + float(val), cur_b)
+            elif rkey.endswith("_back"):
+                base = rkey[:-5]
+                cur_f, cur_b = fb.get(base, (0.0, 0.0))
+                fb[base] = (cur_f, cur_b + float(val))
+            else:
+                # If direction missing, treat as back
+                base = rkey
+                cur_f, cur_b = fb.get(base, (0.0, 0.0))
+                fb[base] = (cur_f, cur_b + float(val))
+
+        # Now scale each base to new total
+        for bj, rname in enumerate(names):
+            t_new = float(max(Fp[si, bj], 0.0))
+            cur_f, cur_b = fb.get(rname, (0.0, 0.0))
+            t_old = cur_f + cur_b
+            if t_old > 0.0:
+                s = t_new / t_old
+                new_f = cur_f * s
+                new_b = cur_b * s
+            else:
+                # Assign to back by default when there was no hit before
+                new_f = 0.0
+                new_b = t_new
+
+            # Write back into result row
+            # Ensure keys exist only when value > 0 to keep dict tidy
+            if new_f > 0.0:
+                row[f"{rname}_front"] = new_f
+            elif f"{rname}_front" in row:
+                del row[f"{rname}_front"]
+            if new_b > 0.0:
+                row[f"{rname}_back"] = new_b
+            elif f"{rname}_back" in row:
+                del row[f"{rname}_back"]
+
+        result[sname] = row
+
+
 def _grid_from_density(area: float, density: float) -> int:
     """Return Halton grid size for a given surface area and sample density."""
     g = int(np.ceil(np.sqrt(max(area, 0.0) * density)))
@@ -94,6 +221,7 @@ def view_factor_matrix(
     return_stats: bool = False,
     cuda_async: bool = True,
     gpu_raygen: bool = False,
+    enforce_reciprocity_rowsum: bool = False,
 ) -> Dict[str, Dict[str, float]]:
     """Compute ``F(i→j)`` for every pair of surfaces in ``meshes``.
 
@@ -122,6 +250,9 @@ def view_factor_matrix(
         Default True.
     gpu_raygen : bool, optional
         Generate rays on the GPU (avoids H2D for rays). Default False.
+    enforce_reciprocity_rowsum : bool, optional
+        After computation, enforce reciprocity and make each row sum to 1 using
+        symmetric diagonal scaling. Default False.
     """
     have_cuda = cuda.is_available()
     if not have_cuda:
@@ -504,6 +635,10 @@ def view_factor_matrix(
         except Exception:
             pass
 
+    # Optional post-processing: enforce reciprocity and row-sum unity on totals
+    if enforce_reciprocity_rowsum:
+        _enforce_reciprocity_and_rowsum(result, meshes, areas)
+
     # If the caller asked for stats, return the collected per-emitter rows.
     if return_stats:
         return result, stats_result or {}
@@ -561,6 +696,7 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
     min_iters = kw.get("min_iters", 1)
     min_total_rays = kw.get("min_total_rays", 0)
     return_stats = kw.get("return_stats", False)
+    enforce_reciprocity_rowsum = kw.get("enforce_reciprocity_rowsum", False)
 
     meshes = senders + receivers
     have_cuda = cuda.is_available()
@@ -802,6 +938,9 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
                 )
         except:
             pass
+
+    if enforce_reciprocity_rowsum:
+        _enforce_reciprocity_and_rowsum(result, meshes, areas)
 
     if return_stats:
         return result, stats_result or {}

@@ -62,7 +62,8 @@ def main():
         reciprocity=True,
         cuda_async=True,
         gpu_threads=256,
-        seed=1000,
+        seed=1,
+        enforce_reciprocity_rowsum=True,
     )
 
     # Try on-GPU ray generation if available flag is supported
@@ -80,4 +81,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
