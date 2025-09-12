@@ -2,6 +2,7 @@ import math, time
 import numpy as np
 from typing import List, Tuple
 from raystrack.main import view_factor_matrix
+from raystrack.io import save_vf_matrix_json
 
 def gen_sphere_patches(lat_n: int, lon_n: int, radius: float = 1.0):
     """
@@ -72,7 +73,7 @@ def gen_sphere_patches(lat_n: int, lon_n: int, radius: float = 1.0):
 
     return meshes
 if __name__ == "__main__":
-    # build ~400 patches
+    # build ~360 patches
     LAT = 10
     LON = 20
     meshes = gen_sphere_patches(LAT, LON)
@@ -81,12 +82,22 @@ if __name__ == "__main__":
 
     # Monte-Carlo parameters
     SAMPLES = 128   # grid per side
-    RAYS    = 128  # rays per cell
+    RAYS    = 128   # rays per cell
     total_rays = SAMPLES*SAMPLES*RAYS
 
     print(f"Tracing from patch_0 with {SAMPLES**2*RAYS:,d} rays…")
     t0 = time.time()
-    VF = view_factor_matrix(meshes, samples=SAMPLES, rays=RAYS, use_bvh=True, max_iters=1000, tol=1e-5, reciprocity=True)
+    VF = view_factor_matrix(
+        meshes,
+        samples=SAMPLES,
+        rays=RAYS,
+        use_bvh=True,
+        max_iters=1000,
+        tol=1e-4,
+        tol_mode="stderr",
+        min_iters=20,
+        reciprocity=True,
+    )
     elapsed = time.time() - t0
 
     # collect all front+back view-factors from patch_1
@@ -95,3 +106,7 @@ if __name__ == "__main__":
 
     print(f"Elapsed: {elapsed:.3f} s")
     print(f"Sum of view-factors from patch_1 to all others: {sum_vf:.6f}")
+
+    # Save full view-factor matrix as JSON
+    out_path = save_vf_matrix_json(VF, "tests/sphere_vf.json")
+    print(f"Saved VF matrix to: {out_path}")

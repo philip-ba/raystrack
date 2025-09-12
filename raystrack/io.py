@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
+import numpy as np
 
 
 VFDict = Dict[str, Dict[str, float]]
 VFInput = Union[VFDict, List[VFDict]]
+MeshTuple = Tuple[str, np.ndarray, np.ndarray]
+Meshes = List[MeshTuple]
 
 
 def _flatten_vf_matrix(vf_matrix: VFInput) -> VFDict:
@@ -86,3 +89,94 @@ def load_vf_matrix_json(load_path: str) -> VFDict:
 
     return out
 
+
+# ---------------------------------------------------------------
+# Mesh geometry JSON IO
+# ---------------------------------------------------------------
+
+def save_meshes_json(meshes: Meshes, save_path: str) -> str:
+    """Save meshes to a JSON file.
+
+    The expected input format is a list of tuples:
+        [(name: str, V: float32[N,3], F: int32[M,3]), ...]
+
+    The JSON structure is:
+        { "meshes": [
+            {"name": str,
+             "vertices": [[x,y,z], ...],
+             "faces": [[i,j,k], ...]
+            }, ...
+        ]}
+    """
+    if not isinstance(meshes, list):
+        raise TypeError("meshes must be a list of (name, V, F) tuples")
+
+    payload = {"meshes": []}
+    for item in meshes:
+        if not (isinstance(item, tuple) and len(item) == 3):
+            raise TypeError("Each mesh must be a (name, V, F) tuple")
+        name, V, F = item
+        if not isinstance(name, str) or name.strip() == "":
+            raise TypeError("Mesh name must be a non-empty string")
+        V = np.asarray(V, dtype=np.float32)
+        F = np.asarray(F, dtype=np.int32)
+        if V.ndim != 2 or V.shape[1] != 3:
+            raise ValueError(f"Vertices for '{name}' must have shape (N,3)")
+        if F.ndim != 2 or F.shape[1] != 3:
+            raise ValueError(f"Faces for '{name}' must have shape (M,3) of triangles")
+        payload["meshes"].append(
+            {
+                "name": name,
+                "vertices": V.tolist(),
+                "faces": F.tolist(),
+            }
+        )
+
+    path = Path(save_path)
+    if path.suffix.lower() == "":
+        path = path.with_suffix(".json")
+    if path.parent and not path.parent.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+    with path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+    return str(path.resolve())
+
+
+def load_meshes_json(load_path: str) -> Meshes:
+    """Load meshes from a JSON file saved by save_meshes_json.
+
+    Returns a list of (name, V, F), where V is float32[N,3], F is int32[M,3].
+    """
+    path = Path(load_path)
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {load_path}")
+
+    with path.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
+
+    if not isinstance(data, dict) or "meshes" not in data:
+        raise TypeError("Invalid mesh JSON: expected an object with 'meshes' list")
+    meshes_raw = data["meshes"]
+    if not isinstance(meshes_raw, list):
+        raise TypeError("'meshes' must be a list")
+
+    out: Meshes = []
+    for i, entry in enumerate(meshes_raw):
+        if not isinstance(entry, dict):
+            raise TypeError("Each entry in 'meshes' must be an object")
+        name = entry.get("name")
+        V = entry.get("vertices")
+        F = entry.get("faces")
+        if not isinstance(name, str) or name.strip() == "":
+            raise TypeError(f"Entry {i}: 'name' must be a non-empty string")
+        V = np.asarray(V, dtype=np.float32)
+        F = np.asarray(F, dtype=np.int32)
+        if V.ndim != 2 or V.shape[1] != 3:
+            raise ValueError(f"Entry {i} ('{name}'): vertices must have shape (N,3)")
+        if F.ndim != 2 or F.shape[1] != 3:
+            raise ValueError(f"Entry {i} ('{name}'): faces must have shape (M,3)")
+        out.append((name, V, F))
+
+    return out

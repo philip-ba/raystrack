@@ -25,8 +25,9 @@ params = dict(samples=16, rays=256, use_bvh=False)
 def test_max_iters_tol_break():
     # With a large tolerance the iterative run stops after two iterations,
     # producing the same result as ``max_iters=2``.
-    ref = view_factor_matrix(meshes, max_iters=50, tol=1e-5, **params)
-    multi = view_factor_matrix(meshes, max_iters=100, tol=1e-5, **params)
+    ref = view_factor_matrix(meshes, max_iters=1000, tol=1e-5, **params, seed=1)
+    multi = view_factor_matrix(meshes, max_iters=1000, tol=1e-5, **params, seed=5)
+    print("Difference:",abs(ref["emitter"]["receiver_back"] - multi["emitter"]["receiver_back"]))
     assert abs(ref["emitter"]["receiver_back"] - multi["emitter"]["receiver_back"]) < 1e-5
 
 

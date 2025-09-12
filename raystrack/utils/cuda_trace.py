@@ -2,6 +2,7 @@ from __future__ import annotations
 import numpy as np
 import numba as nb
 from numba import cuda
+import math
 
 @cuda.jit(device=True, inline=True)
 def _cross(a, b, out):
@@ -137,3 +138,126 @@ def kernel_trace_bvh(orig, dirs, v0, e1, e2, norm, sid,
             cuda.atomic.add(hits_b, hit, 1)
 
 __all__ = ["kernel_trace", "kernel_trace_bvh"]
+
+# Utility kernels
+@cuda.jit
+def kernel_zero_i64(a):
+    i = cuda.grid(1)
+    if i < a.size:
+        a[i] = 0
+
+@cuda.jit
+def kernel_zero_i32(a):
+    i = cuda.grid(1)
+    if i < a.size:
+        a[i] = 0
+
+__all__ += ["kernel_zero_i64", "kernel_zero_i32"]
+
+# ---------------------------------------------------------------
+# On-GPU ray generation (optional)
+# ---------------------------------------------------------------
+
+@cuda.jit(device=True, inline=True)
+def _halton_1d_dev(i, base):
+    f = 1.0
+    r = 0.0
+    while i > 0:
+        f = f / base
+        r = r + f * (i % base)
+        i = i // base
+    return r
+
+@cuda.jit(device=True, inline=True)
+def _binary_search_cdf(cdf, x):
+    lo = 0
+    hi = cdf.shape[0] - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        v = cdf[mid]
+        if v < x:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    if lo < 0:
+        lo = 0
+    if lo >= cdf.shape[0]:
+        lo = cdf.shape[0] - 1
+    return lo
+
+@cuda.jit
+def kernel_build_rays(u_grid, v_grid,
+                      cdf, tri_a, tri_b, tri_c,
+                      g, rays_per_cell,
+                      orig, dire,
+                      cp_grid, cp_dims):
+    k = cuda.grid(1)
+    n_cells = g * g
+    n_rays = n_cells * rays_per_cell
+    if k >= n_rays:
+        return
+
+    cell = k // rays_per_cell
+    ug = (u_grid[cell] + cp_grid[0]) % 1.0
+    vg = (v_grid[cell] + cp_grid[1]) % 1.0
+    qidx = k + 1  # 1-based
+
+    # Bases for low-discrepancy dimensions
+    b_tri = 5
+    b_u = 2
+    b_v = 3
+    b_r1 = 7
+    b_r2 = 11
+
+    q_tri = (_halton_1d_dev(qidx, b_tri) + cp_dims[0]) % 1.0
+    tri = _binary_search_cdf(cdf, q_tri)
+
+    ur = (_halton_1d_dev(qidx, b_u) + cp_dims[1] + ug) % 1.0
+    vr = (_halton_1d_dev(qidx, b_v) + cp_dims[2] + vg) % 1.0
+
+    ax = tri_a[tri, 0]; ay = tri_a[tri, 1]; az = tri_a[tri, 2]
+    bx = tri_b[tri, 0]; by = tri_b[tri, 1]; bz = tri_b[tri, 2]
+    cx = tri_c[tri, 0]; cy = tri_c[tri, 1]; cz = tri_c[tri, 2]
+
+    s = math.sqrt(ur)
+    px = (1.0 - s) * ax + s * (vr * bx + (1.0 - vr) * cx)
+    py = (1.0 - s) * ay + s * (vr * by + (1.0 - vr) * cy)
+    pz = (1.0 - s) * az + s * (vr * bz + (1.0 - vr) * cz)
+
+    # Normal and local frame
+    n0x = (by - ay) * (cz - az) - (bz - az) * (cy - ay)
+    n0y = (bz - az) * (cx - ax) - (bx - ax) * (cz - az)
+    n0z = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+    nlen = math.sqrt(n0x * n0x + n0y * n0y + n0z * n0z) + 1e-12
+    n0x /= nlen; n0y /= nlen; n0z /= nlen
+
+    if abs(n0x) < 0.9:
+        ux, uy, uz = 1.0, 0.0, 0.0
+    else:
+        ux, uy, uz = 0.0, 1.0, 0.0
+    cx0 = uy * n0z - uz * n0y
+    cy0 = uz * n0x - ux * n0z
+    cz0 = ux * n0y - uy * n0x
+    clen = math.sqrt(cx0 * cx0 + cy0 * cy0 + cz0 * cz0) + 1e-12
+    ux = cx0 / clen; uy = cy0 / clen; uz = cz0 / clen
+
+    vx = n0y * uz - n0z * uy
+    vy = n0z * ux - n0x * uz
+    vz = n0x * uy - n0y * ux
+
+    r1 = (_halton_1d_dev(qidx, b_r1) + cp_dims[3]) % 1.0
+    r2 = (_halton_1d_dev(qidx, b_r2) + cp_dims[4]) % 1.0
+    sin_t = math.sqrt(1.0 - r1)
+    phi = 6.283185307179586 * r2
+    x = sin_t * math.cos(phi)
+    y = sin_t * math.sin(phi)
+    z = math.sqrt(r1)
+
+    dx = x * ux + y * vx + z * n0x
+    dy = x * uy + y * vy + z * n0y
+    dz = x * uz + y * vz + z * n0z
+
+    orig[k, 0] = px; orig[k, 1] = py; orig[k, 2] = pz
+    dire[k, 0] = dx; dire[k, 1] = dy; dire[k, 2] = dz
+
+__all__ += ["kernel_build_rays"]
