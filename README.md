@@ -83,7 +83,7 @@ res = view_factor_matrix(
     meshes,
     samples=256,   # sampling density per unit area (QMC grid)
     rays=256,      # rays per cell
-    use_bvh=True,  # optional BVH acceleration
+    bvh="builtin",  # optional BVH acceleration (auto|off|builtin)
     reciprocity=True,
 )
 

@@ -195,13 +195,14 @@ if len(meshes_np) < 2:
     warn("Need at least two surfaces.")
 
 if run:
+    _bvh_mode = 'builtin' if _use_bvh else 'off'
     vf_result = view_factor_matrix(
         meshes_np,
         samples=_samples,
         rays=_rays,
         seed=_seed,
         gpu_threads=_gpu_threads,
-        use_bvh=_use_bvh,
+        bvh=_bvh_mode,
         flip_faces=_flip_faces,
         max_iters=_max_iters,
         tol=_tol,
@@ -209,5 +210,4 @@ if run:
 
     )
     vf_matrix = [vf_result]
-
 

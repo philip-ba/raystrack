@@ -25,6 +25,10 @@ from .utils.cuda_trace import (
     kernel_build_rays,
 )
 from .utils.bvh import build_bvh
+from .utils.helpers import (
+    grid_from_density as _grid_from_density,
+    enforce_reciprocity_and_rowsum as _enforce_reciprocity_and_rowsum,
+)
 
 _LOG_PROC = None
 
@@ -71,137 +75,7 @@ def _log(msg: str) -> None:
     print(msg)
 
 
-def _enforce_reciprocity_and_rowsum(result: Dict[str, Dict[str, float]],
-                                    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
-                                    areas: List[float] | None,
-                                    tol: float = 1e-10,
-                                    max_iter: int = 500) -> None:
-    """In-place adjust result so that totals per row sum to 1 and reciprocity holds.
-
-    This applies Option B: operate on G = diag(A) F, symmetrize, then find a
-    diagonal scaling D so that row sums of D G D equal the target areas A. Then
-    convert back to F' = diag(A)^{-1} (D G D). Front/back entries in ``result``
-    are scaled proportionally to match the new per-pair totals.
-
-    Notes
-    - Uses only the totals per receiver (front+back). If a pair had zero total
-      but the adjusted total is positive, assigns it to the "back" entry.
-    - ``areas`` may be None: then compute from meshes.
-    - Operates on all meshes in order; requires names in ``result`` to match.
-    """
-    n = len(meshes)
-    names = [m[0] for m in meshes]
-    name_to_idx = {name: i for i, name in enumerate(names)}
-
-    # Areas
-    if areas is None:
-        areas = []
-        for _, V_a, F_a in meshes:
-            A_a = 0.5 * np.linalg.norm(
-                np.cross(
-                    V_a[F_a[:, 1]] - V_a[F_a[:, 0]],
-                    V_a[F_a[:, 2]] - V_a[F_a[:, 0]],
-                ),
-                axis=1,
-            )
-            areas.append(float(A_a.sum()))
-    A = np.asarray(areas, dtype=np.float64)
-
-    # Build F (totals per pair, summing front+back)
-    F = np.zeros((n, n), dtype=np.float64)
-
-    def base_of(key: str) -> str:
-        if key.endswith("_front"):
-            return key[:-6]
-        if key.endswith("_back"):
-            return key[:-5]
-        return key
-
-    for si, sname in enumerate(names):
-        row = result.get(sname, {})
-        if not isinstance(row, dict):
-            continue
-        accum: Dict[str, float] = {}
-        for rkey, val in row.items():
-            b = base_of(rkey)
-            accum[b] = accum.get(b, 0.0) + float(val)
-        for bname, v in accum.items():
-            j = name_to_idx.get(bname, None)
-            if j is None:
-                continue
-            F[si, j] = v
-
-    # Form G and symmetrize
-    G = (A[:, None] * F)
-    G = 0.5 * (G + G.T)
-
-    # Symmetric scaling to match row sums = A
-    d = np.ones(n, dtype=np.float64)
-    for _ in range(max_iter):
-        row = d * (G @ d)
-        row = np.maximum(row, 1e-30)
-        upd = A / row
-        d_new = d * np.sqrt(upd)
-        if np.max(np.abs(d_new - d)) < tol:
-            d = d_new
-            break
-        d = d_new
-
-    Gp = (d[:, None] * G) * d[None, :]
-    Fp = Gp / A[:, None]
-
-    # Redistribute back into result proportionally to original front/back
-    for si, sname in enumerate(names):
-        row = result.get(sname, {})
-        # Build per-base front/back values
-        fb: Dict[str, Tuple[float, float]] = {}
-        for rkey, val in row.items():
-            if rkey.endswith("_front"):
-                base = rkey[:-6]
-                cur_f, cur_b = fb.get(base, (0.0, 0.0))
-                fb[base] = (cur_f + float(val), cur_b)
-            elif rkey.endswith("_back"):
-                base = rkey[:-5]
-                cur_f, cur_b = fb.get(base, (0.0, 0.0))
-                fb[base] = (cur_f, cur_b + float(val))
-            else:
-                # If direction missing, treat as back
-                base = rkey
-                cur_f, cur_b = fb.get(base, (0.0, 0.0))
-                fb[base] = (cur_f, cur_b + float(val))
-
-        # Now scale each base to new total
-        for bj, rname in enumerate(names):
-            t_new = float(max(Fp[si, bj], 0.0))
-            cur_f, cur_b = fb.get(rname, (0.0, 0.0))
-            t_old = cur_f + cur_b
-            if t_old > 0.0:
-                s = t_new / t_old
-                new_f = cur_f * s
-                new_b = cur_b * s
-            else:
-                # Assign to back by default when there was no hit before
-                new_f = 0.0
-                new_b = t_new
-
-            # Write back into result row
-            # Ensure keys exist only when value > 0 to keep dict tidy
-            if new_f > 0.0:
-                row[f"{rname}_front"] = new_f
-            elif f"{rname}_front" in row:
-                del row[f"{rname}_front"]
-            if new_b > 0.0:
-                row[f"{rname}_back"] = new_b
-            elif f"{rname}_back" in row:
-                del row[f"{rname}_back"]
-
-        result[sname] = row
-
-
-def _grid_from_density(area: float, density: float) -> int:
-    """Return Halton grid size for a given surface area and sample density."""
-    g = int(np.ceil(np.sqrt(max(area, 0.0) * density)))
-    return max(g, 4)
+"""Helper functions moved to raystrack.utils.helpers"""
 
 
 def view_factor_matrix(
@@ -210,7 +84,8 @@ def view_factor_matrix(
     rays: int = 256,
     seed: int = 0,
     gpu_threads=None,
-    use_bvh: bool = False,
+    bvh: str = "auto",
+    device: str = "auto",
     flip_faces: bool = False,
     max_iters: int = 1,
     tol: float = 1e-5,
@@ -254,8 +129,19 @@ def view_factor_matrix(
         After computation, enforce reciprocity and make each row sum to 1 using
         symmetric diagonal scaling. Default False.
     """
+    # Device and BVH selection
     have_cuda = cuda.is_available()
-    if not have_cuda:
+    dev = (device or "auto").lower()
+    if dev not in ("auto", "gpu", "cpu"):
+        raise ValueError(f"device must be 'auto', 'gpu', or 'cpu' (got {device!r})")
+    if dev == "auto":
+        use_gpu = have_cuda
+    elif dev == "gpu":
+        if not have_cuda:
+            raise RuntimeError("device='gpu' requested but CUDA is not available")
+        use_gpu = True
+    else:
+        use_gpu = False
         set_num_threads(1)
     result: Dict[str, Dict[str, float]] = {name: {} for name, _, _ in meshes}
 
@@ -275,6 +161,22 @@ def view_factor_matrix(
                 axis=1,
             )
             areas.append(float(A_a.sum()))
+
+    # Decide BVH mode
+    if isinstance(bvh, str):
+        bvh_mode = bvh.lower()
+    else:
+        bvh_mode = "auto"
+    if bvh_mode not in ("auto", "off", "builtin"):
+        raise ValueError(f"bvh must be 'auto', 'off', or 'builtin' (got {bvh!r})")
+
+    total_faces = int(sum(F.shape[0] for _, _, F in meshes))
+    BVH_AUTO_THRESHOLD = 512
+    use_bvh_flag = (
+        True if bvh_mode == "builtin"
+        else False if bvh_mode == "off"
+        else total_faces >= BVH_AUTO_THRESHOLD
+    )
 
     stats_result: Dict[str, Dict[str, float]] = {} if return_stats else None  # type: ignore[assignment]
     for idx_emit, (name_e, V_e, F_e) in enumerate(meshes):
@@ -304,11 +206,11 @@ def view_factor_matrix(
 
         if len(v0) == 0:
             _log(
-                f"({idx_emit+1}/{len(meshes)}) [{name_e}] 0 iter, 0 rays -> 0.000s  (BVH={'on' if use_bvh else 'off'})"
+                f"({idx_emit+1}/{len(meshes)}) [{name_e}] 0 iter, 0 rays -> 0.000s  (BVH={'builtin' if use_bvh_flag else 'off'}, device={'gpu' if use_gpu else 'cpu'})"
             )
             continue
 
-        if use_bvh:
+        if use_bvh_flag:
             bb_min, bb_max, left, right, start, cnt, perm = build_bvh(v0, e1, e2)
             v0 = v0[perm]
             e1 = e1[perm]
@@ -337,13 +239,13 @@ def view_factor_matrix(
         iters_done = 0
 
         # Pre-allocate persistent device and (optionally) pinned host buffers
-        if have_cuda:
+        if use_gpu:
             d_v0 = cuda.to_device(v0)
             d_e1 = cuda.to_device(e1)
             d_e2 = cuda.to_device(e2)
             d_nrm = cuda.to_device(nrm)
             d_sid = cuda.to_device(sid)
-            if use_bvh:
+            if use_bvh_flag:
                 d_bbmin = cuda.to_device(bb_min)
                 d_bbmax = cuda.to_device(bb_max)
                 d_left = cuda.to_device(left)
@@ -372,7 +274,7 @@ def view_factor_matrix(
 
         for itr in range(max_iters):
             n_rays = cells * rays
-            if have_cuda and cuda_async:
+            if use_gpu and cuda_async:
                 orig = h_orig
                 dire = h_dirs
             else:
@@ -384,7 +286,7 @@ def view_factor_matrix(
             cp_grid = rng.random(2, dtype=np.float32)
             cp_dims = rng.random(5, dtype=np.float32)
 
-            if have_cuda and gpu_raygen:
+            if use_gpu and gpu_raygen:
                 threads_gen = gpu_threads or 256
                 threads_gen = min(threads_gen, cuda.get_current_device().MAX_THREADS_PER_BLOCK)
                 blocks_gen = (n_rays + threads_gen - 1) // threads_gen
@@ -441,7 +343,7 @@ def view_factor_matrix(
                 hits_f_iter = np.zeros_like(hits_f)
                 hits_b_iter = np.zeros_like(hits_b)
 
-            if have_cuda:
+            if use_gpu:
                 # Copy rays into persistent device arrays
                 if not gpu_raygen:
                     if cuda_async:
@@ -463,7 +365,7 @@ def view_factor_matrix(
                     kernel_zero_i64[zblocks, threads](d_hf)
                     kernel_zero_i64[zblocks, threads](d_hb)
 
-                if use_bvh:
+                if use_bvh_flag:
                     if cuda_async:
                         kernel_trace_bvh[blocks, threads, stream](
                             d_orig,
@@ -518,7 +420,7 @@ def view_factor_matrix(
                     hits_f_iter = d_hf.copy_to_host()
                     hits_b_iter = d_hb.copy_to_host()
             else:
-                if use_bvh:
+                if use_bvh_flag:
                     trace_cpu_bvh(
                         orig,
                         dire,
@@ -631,7 +533,7 @@ def view_factor_matrix(
 
         msg = (f"({idx_emit+1}/{surf_total}) [{name_e}] "
                f"{iter_count} iter, {total_rays:,} rays -> "
-               f"{elapsed:0.3f}s  (BVH={'on' if use_bvh else 'off'})")
+               f"{elapsed:0.3f}s  (BVH={'builtin' if use_bvh_flag else 'off'}, device={'gpu' if use_gpu else 'cpu'})")
 
         _log(msg)                          # console / VS Code
         try:
@@ -650,12 +552,8 @@ def view_factor_matrix(
     return result
 
 
-def view_factor_matrix_brute(*args, **kw):
-    kw["use_bvh"] = False
-    return view_factor_matrix(*args, **kw)
-
 def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
-    """Return F(sender→receiver) using the same Monte-Carlo algorithm.
+    """Return F(sender->receiver) using the same Monte-Carlo algorithm.
 
     Parameters
     ----------
@@ -683,275 +581,33 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
         surfaces computed via reciprocity.
     """
 
+    # Delegated implementation to keep parity with view_factor_matrix
     senders = [sender] if isinstance(sender, tuple) else list(sender)
     receivers = [receiver] if isinstance(receiver, tuple) else list(receiver)
-
-    # ------------------------------------------------------------------
-    # Gather parameters identical to :func:`view_factor_matrix`
-    # ------------------------------------------------------------------
-    samples = kw.get("samples", 256)
-    rays = kw.get("rays", 256)
-    seed = kw.get("seed", 0)
-    gpu_threads = kw.get("gpu_threads", None)
-    use_bvh = kw.get("use_bvh", False)
-    flip_faces = kw.get("flip_faces", False)
-    max_iters = kw.get("max_iters", 1)
-    tol = kw.get("tol", 1e-5)
-    tol_mode = kw.get("tol_mode", "delta")
-    min_iters = kw.get("min_iters", 1)
-    min_total_rays = kw.get("min_total_rays", 0)
-    return_stats = kw.get("return_stats", False)
-    enforce_reciprocity_rowsum = kw.get("enforce_reciprocity_rowsum", False)
-
     meshes = senders + receivers
-    have_cuda = cuda.is_available()
-    if not have_cuda:
-        set_num_threads(1)
+    vf_all = view_factor_matrix(
+        meshes,
+        samples=kw.get("samples", 256),
+        rays=kw.get("rays", 256),
+        seed=kw.get("seed", 0),
+        gpu_threads=kw.get("gpu_threads", None),
+        bvh=kw.get("bvh", "auto"),
+        device=kw.get("device", "auto"),
+        flip_faces=kw.get("flip_faces", False),
+        max_iters=kw.get("max_iters", 1),
+        tol=kw.get("tol", 1e-5),
+        reciprocity=reciprocity,
+        tol_mode=kw.get("tol_mode", "delta"),
+        min_iters=kw.get("min_iters", 1),
+        min_total_rays=kw.get("min_total_rays", 0),
+        return_stats=False,
+        cuda_async=kw.get("cuda_async", True),
+        gpu_raygen=kw.get("gpu_raygen", False),
+        enforce_reciprocity_rowsum=kw.get("enforce_reciprocity_rowsum", False),
+    )
+    sender_names = [s[0] for s in senders]
+    out = {name: vf_all.get(name, {}) for name in sender_names}
+    return out
 
-    # Note: flip only sender(s) during emission sampling below; receivers stay as-is.
 
-    if reciprocity:
-        result: Dict[str, Dict[str, float]] = {name: {} for name, _, _ in meshes}
-        areas = []
-        for _, V_a, F_a in meshes:
-            A_a = 0.5 * np.linalg.norm(
-                np.cross(
-                    V_a[F_a[:, 1]] - V_a[F_a[:, 0]],
-                    V_a[F_a[:, 2]] - V_a[F_a[:, 0]],
-                ),
-                axis=1,
-            )
-            areas.append(float(A_a.sum()))
-    else:
-        result: Dict[str, Dict[str, float]] = {}
-        areas = None
-
-    stats_result: Dict[str, Dict[str, float]] = {} if return_stats else None  # type: ignore[assignment]
-    for idx_emit, (name_e, V_e, F_e) in enumerate(meshes[: len(senders)]):
-        t_tot = time.time()
-
-        # Only consider receivers, not other senders. Allow the current sender's
-        # triangles to remain as receivers (only the exact sending triangle is
-        # implicitly ignored by the ray t>eps test).
-        skip_senders = set(range(len(senders))) - {idx_emit}
-        v0, e1, e2, sid, nrm = flatten_receivers(meshes, idx_emit, skip_senders)
-        n_surf = len(meshes)
-        hits_f = np.zeros(n_surf, np.int64)
-        hits_b = np.zeros_like(hits_f)
-        mean_f = np.zeros(n_surf, np.float64)
-        mean_b = np.zeros(n_surf, np.float64)
-        M2_f = np.zeros(n_surf, np.float64)
-        M2_b = np.zeros(n_surf, np.float64)
-
-        if use_bvh:
-            bb_min, bb_max, left, right, start, cnt, perm = build_bvh(v0, e1, e2)
-            v0 = v0[perm]
-            e1 = e1[perm]
-            e2 = e2[perm]
-            sid = sid[perm]
-            nrm = nrm[perm]
-        else:
-            bb_min = bb_max = left = right = start = cnt = None
-
-        # Use flipped winding only for the sender if requested
-        F_emit = F_e[:, [0, 2, 1]] if flip_faces else F_e
-
-        A = 0.5 * np.linalg.norm(
-            np.cross(V_e[F_emit[:, 1]] - V_e[F_emit[:, 0]], V_e[F_emit[:, 2]] - V_e[F_emit[:, 0]]),
-            axis=1,
-        )
-        cdf = np.cumsum(A) / A.sum()
-
-        area = float(A.sum())
-        g = _grid_from_density(area, samples)
-        u_grid, v_grid = cached_halton(g)
-
-        cells = g * g
-        prev_f = prev_b = None
-        total_rays = 0
-        iters_done = 0
-
-        for itr in range(max_iters):
-            n_rays = cells * rays
-            orig = np.empty((n_rays, 3), np.float32)
-            dire = np.empty_like(orig)
-            rng = np.random.default_rng(seed + idx_emit + itr)
-            cp_grid = rng.random(2, dtype=np.float32)
-            cp_dims = rng.random(5, dtype=np.float32)
-
-            build_rays(
-                u_grid,
-                v_grid,
-                cdf.astype(np.float32),
-                V_e[F_emit[:, 0]],
-                V_e[F_emit[:, 1]],
-                V_e[F_emit[:, 2]],
-                g,
-                rays,
-                orig,
-                dire,
-                cp_grid,
-                cp_dims,
-            )
-
-            hits_f_iter = np.zeros_like(hits_f)
-            hits_b_iter = np.zeros_like(hits_b)
-
-            if have_cuda:
-                d_orig.copy_to_device(orig)
-                d_dirs.copy_to_device(dire)
-
-                threads = gpu_threads or 256
-                threads = min(threads, cuda.get_current_device().MAX_THREADS_PER_BLOCK)
-                blocks = (n_rays + threads - 1) // threads
-                zblocks = (hits_f_iter.size + threads - 1) // threads
-                kernel_zero_i64[zblocks, threads](d_hf)
-                kernel_zero_i64[zblocks, threads](d_hb)
-
-                if use_bvh:
-                    kernel_trace_bvh[
-                        blocks,
-                        threads,
-                    ](
-                        d_orig,
-                        d_dirs,
-                        d_v0,
-                        d_e1,
-                        d_e2,
-                        d_nrm,
-                        d_sid,
-                        d_bbmin,
-                        d_bbmax,
-                        d_left,
-                        d_right,
-                        d_start,
-                        d_cnt,
-                        d_hf,
-                        d_hb,
-                    )
-                else:
-                    kernel_trace[
-                        blocks,
-                        threads,
-                    ](d_orig, d_dirs, d_v0, d_e1, d_e2, d_nrm, d_sid, d_hf, d_hb)
-                cuda.synchronize()
-                hits_f_iter = d_hf.copy_to_host()
-                hits_b_iter = d_hb.copy_to_host()
-            else:
-                if use_bvh:
-                    trace_cpu_bvh(
-                        orig,
-                        dire,
-                        v0,
-                        e1,
-                        e2,
-                        nrm,
-                        sid,
-                        bb_min,
-                        bb_max,
-                        left,
-                        right,
-                        start,
-                        cnt,
-                        hits_f_iter,
-                        hits_b_iter,
-                    )
-                else:
-                    trace_cpu(orig, dire, v0, e1, e2, nrm, sid, hits_f_iter, hits_b_iter)
-
-            hits_f += hits_f_iter
-            hits_b += hits_b_iter
-            total_rays += n_rays
-            iters_done += 1
-
-            # Per-iteration estimates and running stats
-            f_iter = hits_f_iter.astype(np.float64) / float(n_rays)
-            b_iter = hits_b_iter.astype(np.float64) / float(n_rays)
-            delta_f = f_iter - mean_f
-            mean_f += delta_f / iters_done
-            M2_f += delta_f * (f_iter - mean_f)
-            delta_b = b_iter - mean_b
-            mean_b += delta_b / iters_done
-            M2_b += delta_b * (b_iter - mean_b)
-
-            if tol_mode == "delta":
-                curr_f = hits_f / float(total_rays)
-                curr_b = hits_b / float(total_rays)
-                if prev_f is not None:
-                    if (
-                        iters_done >= max(1, min_iters)
-                        and total_rays >= max(0, min_total_rays)
-                        and np.all(np.abs(curr_f - prev_f) < tol)
-                        and np.all(np.abs(curr_b - prev_b) < tol)
-                    ):
-                        break
-                prev_f = curr_f.copy()
-                prev_b = curr_b.copy()
-            elif tol_mode == "stderr":
-                if iters_done >= max(1, min_iters) and total_rays >= max(0, min_total_rays):
-                    if iters_done > 1:
-                        var_f = M2_f / (iters_done - 1)
-                        var_b = M2_b / (iters_done - 1)
-                        se_f = np.sqrt(np.maximum(var_f, 0.0) / iters_done)
-                        se_b = np.sqrt(np.maximum(var_b, 0.0) / iters_done)
-                        # receiver indices are j >= len(senders) and j != idx_emit
-                        recv_idx = np.array([j for j in range(len(senders), n_surf) if j != idx_emit], dtype=np.int32)
-                        if (
-                            np.all(se_f[recv_idx] <= tol)
-                            and np.all(se_b[recv_idx] <= tol)
-                        ):
-                            break
-            else:
-                raise ValueError(f"Unknown tol_mode: {tol_mode}")
-
-        row = {}
-        stats_row = {}
-        if iters_done > 1:
-            var_f = M2_f / (iters_done - 1)
-            var_b = M2_b / (iters_done - 1)
-            se_f = np.sqrt(np.maximum(var_f, 0.0) / iters_done)
-            se_b = np.sqrt(np.maximum(var_b, 0.0) / iters_done)
-        else:
-            se_f = np.full(n_surf, np.inf, np.float64)
-            se_b = np.full(n_surf, np.inf, np.float64)
-
-        for j, (name_r, _, _) in enumerate(meshes):
-            if j == idx_emit or j < len(senders):
-                # Skip self and other emitters
-                continue
-            f = hits_f[j] / float(total_rays)
-            b = hits_b[j] / float(total_rays)
-            if f > 0:
-                row[f"{name_r}_front"] = f
-                if reciprocity:
-                    result[name_r][f"{name_e}_front"] = f * (areas[idx_emit] / areas[j])
-                if return_stats:
-                    stats_row[f"{name_r}_front"] = float(se_f[j])
-            if b > 0:
-                row[f"{name_r}_back"] = b
-                if return_stats:
-                    stats_row[f"{name_r}_back"] = float(se_b[j])
-
-        result[name_e] = row
-        if return_stats:
-            stats_result[name_e] = stats_row
-        _log(
-            f"[{name_e}] total {time.time() - t_tot:.3f}s  (BVH={'on' if use_bvh else 'off'})"
-        )
-
-        # Logging in Rhino
-        try:
-            Rhino.RhinoApp.WriteLine(
-                    f"[{name_e}] total {time.time() - t_tot:.3f}s  (BVH={'on' if use_bvh else 'off'})"
-                )
-        except:
-            pass
-
-    if enforce_reciprocity_rowsum:
-        _enforce_reciprocity_and_rowsum(result, meshes, areas)
-
-    if return_stats:
-        return result, stats_result or {}
-    return result
-
-__all__ = ["view_factor_matrix", "view_factor_matrix_brute", "view_factor"]
+__all__ = ["view_factor_matrix", "view_factor"]

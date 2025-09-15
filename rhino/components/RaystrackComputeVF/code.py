@@ -236,6 +236,7 @@ if len(receiver_meshes_np) < 1:
     warn("Need at least one surface.")
 
 if run:
+    _bvh_mode = 'builtin' if _use_bvh else 'off'
     vf_result = view_factor(
         sender=sender_meshes_np,
         receiver=receiver_meshes_np,
@@ -243,7 +244,7 @@ if run:
         rays=_rays,
         seed=_seed,
         gpu_threads=_gpu_threads,
-        use_bvh=_use_bvh,
+        bvh=_bvh_mode,
         flip_faces=_flip_faces,
         max_iters=_max_iters,
         tol=_tol
