@@ -14,7 +14,12 @@ except:
     pass
 
 
-from .utils.halton import cached_halton
+# Be resilient to namespace-package edge cases: prefer utils __init__ export,
+# but fall back to explicit submodule import if needed.
+try:  # pragma: no cover - import robustness
+    from .utils import cached_halton  # type: ignore[attr-defined]
+except Exception:  # pragma: no cover
+    from .utils.halton import cached_halton
 from .utils.geometry import flatten_receivers, flip_meshes
 from .utils.ray_builder import build_rays
 from .utils.cpu_trace import (

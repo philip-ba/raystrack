@@ -26,3 +26,15 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/Philip-rptu/raystrack"
+
+# Ensure setuptools finds the package in the src/ layout for editable installs
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = [
+  "tests*",
+  "examples*",
+  "build*",
+]

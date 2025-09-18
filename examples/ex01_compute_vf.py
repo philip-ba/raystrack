@@ -21,7 +21,7 @@ def ensure_repo_on_path():
 def main():
     ensure_repo_on_path()
     from raystrack.io import load_meshes_json, save_vf_matrix_json
-    from raystrack.main import view_factor_matrix
+    from raystrack import view_factor_matrix
 
     here = Path(__file__).resolve().parent
     geom = here / "street_canyon.json"
