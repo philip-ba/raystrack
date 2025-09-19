@@ -105,7 +105,7 @@ def view_factor_matrix(
     max_iters: int = 1,
     tol: float = 1e-5,
     reciprocity: bool = False,
-    tol_mode: str = "delta",
+    tol_mode: str = "stderr",
     min_iters: int = 1,
     min_total_rays: int = 0,
     return_stats: bool = False,
@@ -642,7 +642,7 @@ def view_factor_to_tregenza_sky(
     # Monte Carlo control
     max_iters: int = 1,
     tol: float = 1e-5,
-    tol_mode: str = "delta",
+    tol_mode: str = "stderr",
     min_iters: int = 1,
     min_total_rays: int = 0,
 ) -> Dict[str, Dict[str, float]]:
