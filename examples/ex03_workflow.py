@@ -51,6 +51,7 @@ def main():
         tol_mode="stderr",  # matrix algorithm supports 'delta' and 'stderr'
         min_iters=5,
         enforce_reciprocity_rowsum=False,
+        reciprocity = False, # True means that all surfaces get extra weighted vf to match rowsum = 1; False means there is a rest
     )
     sky_params = dict(
         samples=16,
@@ -75,13 +76,14 @@ def main():
     )
 
     # Print a short reconciliation summary
-    print("Emitter                            sum(scene)        Sky          Rest")
-    print("-" * 82)
+    print("Emitter                            sum(scene)        Sky          Rest        Total")
+    print("-" * 96)
     for name, row in vf_scene.items():
         scene_sum = float(sum(float(v) for v in row.values()))
         sky_total = float(sky_vf.get(name, {}).get("Sky", 0.0))
         resid = float(rest_vf.get(name, {}).get("Rest", 0.0))
-        print(f"{name:32s}  {scene_sum:>10.6f}   {sky_total:>10.6f}    {resid:+.6e}")
+        total = scene_sum + sky_total + resid
+        print(f"{name:32s}  {scene_sum:>10.6f}   {sky_total:>10.6f}    {resid:+.6e}   {total:>10.6f}")
 
     # Save results next to the example
     out_scene = here / "vf_scene_workflow.json"

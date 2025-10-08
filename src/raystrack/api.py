@@ -1,8 +1,10 @@
 from __future__ import annotations
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 
 from .main import view_factor_matrix, view_factor_to_tregenza_sky
+from .utils.helpers import enforce_reciprocity_and_rowsum as _enforce_reciprocity_and_rowsum
 
 
 def _row_sum(row: Dict[str, float]) -> float:
@@ -58,10 +60,15 @@ def view_factor_outside_workflow(
     matrix_params = dict(matrix_params or {})
     sky_params = dict(sky_params or {})
 
+    enforce_scene = bool(matrix_params.pop("enforce_reciprocity_rowsum", False))
+    reciprocity_flag = bool(matrix_params.get("reciprocity", False))
+
     # Ensure we don't auto-enforce rows at matrix stage
-    matrix_params.setdefault("enforce_reciprocity_rowsum", False)
-    # Compute both
-    vf_scene = view_factor_matrix(meshes, **matrix_params)
+    vf_scene = view_factor_matrix(
+        meshes,
+        enforce_reciprocity_rowsum=False,
+        **matrix_params,
+    )
     sky_vf = view_factor_to_tregenza_sky(meshes, discrete=discrete, **sky_params)
 
     # Determine convergence tolerances
@@ -69,21 +76,80 @@ def view_factor_outside_workflow(
     tol_sky = float(sky_params.get("tol", 1e-5))
     threshold = abs(float(threshold)) if threshold is not None else max(tol_matrix, tol_sky)
 
+    mesh_names = [name for name, _, _ in meshes]
+    scene_targets = {name: max(0.0, _row_sum(vf_scene.get(name, {}))) for name in mesh_names}
+
+    if reciprocity_flag or enforce_scene:
+        row_targets = [scene_targets.get(name, 0.0) for name in mesh_names]
+        _enforce_reciprocity_and_rowsum(vf_scene, meshes, None, row_targets=row_targets)
+
     rest_vf: Dict[str, Dict[str, float]] = {}
 
-    for emitter, row in vf_scene.items():
+    mesh_names = [name for name, _, _ in meshes]
+    sky_totals = {name: 0.0 for name in mesh_names}
+
+    for emitter in mesh_names:
+        row = vf_scene.get(emitter, {})
         scene_sum = _row_sum(row)
-        sky_row = sky_vf.get(emitter, {})
+        sky_row = dict(sky_vf.get(emitter, {}))
         if discrete:
             sky_total = float(sum(float(v) for v in sky_row.values()))
         else:
             sky_total = float(sky_row.get("Sky", 0.0))
 
-        residual = 1.0 - scene_sum - sky_total
+        if scene_sum + sky_total > 1.0 + threshold:
+            if sky_total > 0.0:
+                allowed_sky = max(0.0, 1.0 - scene_sum)
+                scale = min(1.0, allowed_sky / sky_total) if sky_total else 0.0
+                if discrete:
+                    for key, value in list(sky_row.items()):
+                        sky_row[key] = float(value) * scale
+                    sky_total = float(sum(float(v) for v in sky_row.values()))
+                else:
+                    sky_row["Sky"] = float(sky_row.get("Sky", 0.0)) * scale
+                    sky_total = float(sky_row.get("Sky", 0.0))
+                sky_vf[emitter] = sky_row
+            else:
+                sky_total = 0.0
+
+        sky_totals[emitter] = max(0.0, sky_total)
+
+    if reciprocity_flag or enforce_scene:
+        row_targets = [max(0.0, 1.0 - sky_totals.get(name, 0.0)) for name in mesh_names]
+        _enforce_reciprocity_and_rowsum(vf_scene, meshes, None, row_targets=row_targets)
+
+    for emitter in mesh_names:
+        row = vf_scene.get(emitter, {})
+        scene_sum = _row_sum(row)
+        sky_row = dict(sky_vf.get(emitter, {}))
+        if discrete:
+            sky_total = float(sum(float(v) for v in sky_row.values()))
+        else:
+            sky_total = float(sky_row.get("Sky", 0.0))
+
+        combined = scene_sum + sky_total
+        if combined > 1.0 + threshold and sky_total > 0.0:
+            allowed_sky = max(0.0, 1.0 - scene_sum)
+            if allowed_sky <= 0.0:
+                sky_row = {key: 0.0 for key in sky_row}
+                sky_total = 0.0
+            else:
+                scale = min(1.0, allowed_sky / sky_total)
+                if discrete:
+                    for key, value in list(sky_row.items()):
+                        sky_row[key] = float(value) * scale
+                    sky_total = float(sum(float(v) for v in sky_row.values()))
+                else:
+                    sky_row["Sky"] = float(sky_row.get("Sky", 0.0)) * scale
+                    sky_total = float(sky_row.get("Sky", 0.0))
+            sky_vf[emitter] = sky_row
+            combined = scene_sum + sky_total
+
+        residual = 1.0 - combined
         if abs(residual) <= threshold:
             residual = 0.0
 
-        rest_vf[emitter] = {"REST": residual}
+        rest_vf[emitter] = {"Rest": residual}
 
     return vf_scene, sky_vf, rest_vf
 

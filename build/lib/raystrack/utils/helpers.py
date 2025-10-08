@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 import numpy as np
 
 
@@ -13,14 +13,22 @@ def enforce_reciprocity_and_rowsum(
     result: Dict[str, Dict[str, float]],
     meshes: List[Tuple[str, np.ndarray, np.ndarray]],
     areas: List[float] | None,
+    row_targets: Iterable[float] | None = None,
     tol: float = 1e-10,
     max_iter: int = 500,
 ) -> None:
-    """In-place adjust result so that rows sum to 1 and reciprocity holds.
+    """In-place adjust result so that rows sum to targets and reciprocity holds.
 
     Operates on totals per pair (front+back) using symmetric diagonal scaling
     of G = diag(A) F after symmetrization, then maps back to front/back totals
     proportionally to the original split.
+
+    Parameters
+    ----------
+    row_targets : iterable of float, optional
+        Desired total view factor per emitter (same order as ``meshes``). When
+        omitted, rows are normalised to sum to one. When provided, the helper
+        enforces the specified totals while still honouring reciprocity.
     """
     n = len(meshes)
     names = [m[0] for m in meshes]
@@ -38,6 +46,14 @@ def enforce_reciprocity_and_rowsum(
             )
             areas.append(float(A_a.sum()))
     A = np.asarray(areas, dtype=np.float64)
+    if row_targets is None:
+        target = A
+    else:
+        target = np.asarray(list(row_targets), dtype=np.float64)
+        if target.shape != A.shape:
+            raise ValueError("row_targets must match number of meshes")
+        target = np.clip(target, 0.0, None)
+        target = A * target
 
     F = np.zeros((n, n), dtype=np.float64)
 
@@ -69,7 +85,8 @@ def enforce_reciprocity_and_rowsum(
     for _ in range(max_iter):
         row = d * (G @ d)
         row = np.maximum(row, 1e-30)
-        upd = A / row
+        upd = target / row if row_targets is not None else A / row
+        upd = np.maximum(upd, 0.0)
         d_new = d * np.sqrt(upd)
         if np.max(np.abs(d_new - d)) < tol:
             d = d_new
@@ -77,7 +94,8 @@ def enforce_reciprocity_and_rowsum(
         d = d_new
 
     Gp = (d[:, None] * G) * d[None, :]
-    Fp = Gp / A[:, None]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        Fp = np.divide(Gp, A[:, None], out=np.zeros_like(Gp), where=A[:, None] > 0.0)
 
     for si, sname in enumerate(names):
         row = result.get(sname, {})

@@ -557,7 +557,6 @@ def view_factor_matrix(
         except Exception:
             pass
 
-    # Optional post-processing: enforce reciprocity and row-sum unity on totals
     if enforce_reciprocity_rowsum:
         _enforce_reciprocity_and_rowsum(result, meshes, areas)
 
