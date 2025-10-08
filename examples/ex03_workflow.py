@@ -90,6 +90,7 @@ def main():
     save_vf_matrix_json(sky_vf, str(out_sky))
     print(f"Saved reconciled scene VF to: {out_scene}")
     print(f"Saved sky VF to: {out_sky}")
+    print(rest_vf)
 
 
 if __name__ == "__main__":

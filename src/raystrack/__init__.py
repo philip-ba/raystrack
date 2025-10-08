@@ -9,6 +9,7 @@ from .io import (
     load_vf_matrix_json,
     save_meshes_json,
     load_meshes_json,
+    merge_vf_matrix
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "load_vf_matrix_json",
     "save_meshes_json",
     "load_meshes_json",
+    "merge_vf_matrix"
 ]

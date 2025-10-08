@@ -83,7 +83,7 @@ def view_factor_outside_workflow(
         if abs(residual) <= threshold:
             residual = 0.0
 
-        rest_vf[emitter] = {"Rest": residual}
+        rest_vf[emitter] = {"REST": residual}
 
     return vf_scene, sky_vf, rest_vf
 

@@ -12,21 +12,49 @@ MeshTuple = Tuple[str, np.ndarray, np.ndarray]
 Meshes = List[MeshTuple]
 
 
-def _flatten_vf_matrix(vf_matrix: VFInput) -> VFDict:
-    """Normalize input to a single dict {sender: {receiver: value}}.
+def merge_vf_matrix(vf_matrix: VFInput) -> VFDict:
+    """
+    Normalize and deep-merge input to a single dict of the form:
+        { sender: { receiver: value } }
 
-    Accepts either a dict or a list of dicts (later entries overwrite earlier
-    ones on the same sender key).
+    Accepts either:
+      - a single dict
+      - a list of dicts
+
+    When a list is provided, all dicts are merged. 
+    If the same `sender` key appears in multiple dicts, 
+    their nested `receiver` mappings are merged instead of replaced.
+    Later entries overwrite earlier ones only for overlapping receiver keys.
+
+    Parameters
+    ----------
+    vf_matrix : dict or list of dict
+        Input dictionary/dictionaries to normalize and merge.
+
+    Returns
+    -------
+    VFDict
+        A single merged dictionary with combined receiver entries.
+
+    Raises
+    ------
+    TypeError
+        If vf_matrix is neither a dict nor a list of dicts.
     """
     if isinstance(vf_matrix, list):
         flat: VFDict = {}
         for d in vf_matrix:
             if not isinstance(d, dict):
                 raise TypeError("All elements of vf_matrix list must be dicts")
-            flat.update(d)
+            for sender, receivers in d.items():
+                if sender not in flat:
+                    flat[sender] = {}
+                flat[sender].update(receivers)
         return flat
+
     if isinstance(vf_matrix, dict):
         return vf_matrix
+
     raise TypeError("vf_matrix must be a dict or list of dicts")
 
 
@@ -36,7 +64,7 @@ def save_vf_matrix_json(vf_matrix: VFInput, save_path: str) -> str:
     Receivers with value exactly 0.0 are omitted from the saved JSON to reduce
     file size and noise.
     """
-    flat = _flatten_vf_matrix(vf_matrix)
+    flat = merge_vf_matrix(vf_matrix)
 
     # Basic validation of structure and numeric values
     for sender, row in flat.items():
