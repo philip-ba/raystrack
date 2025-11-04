@@ -52,29 +52,29 @@ def main():
 
     # Reasonable defaults for a quick-yet-stable run
     matrix_params = dict(
-        samples=16,
-        rays=128,
+        samples=32,
+        rays=256,
         seed=7,
-        bvh="auto",
+        bvh="builtin",
         device="auto",
         cuda_async=True,
         gpu_raygen=True,
-        max_iters=25,
+        max_iters=500,
         tol=1e-5,
         tol_mode="stderr",  # matrix algorithm supports 'delta' and 'stderr'
         min_iters=5,
         enforce_reciprocity_rowsum=False, # True means that all surfaces get extra weighted vf to match rowsum = 1; False means there is a rest
-        reciprocity = False, 
+        reciprocity = True, 
     )
     sky_params = dict(
-        samples=16,
-        rays=128,
+        samples=32,
+        rays=256,
         seed=7,
-        bvh="auto",
+        bvh="builtin",
         device="auto",
         cuda_async=True,
         gpu_raygen=True,
-        max_iters=25,
+        max_iters=500,
         tol=1e-5,          # stderr target for merged sky
         tol_mode="stderr", # use true stderr convergence for sky
         min_iters=5,
@@ -110,4 +110,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+    from raystrack.utils.helpers import hold_console_open
+    hold_console_open()
 

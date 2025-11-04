@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 import time
-from typing import List, Tuple, Dict
+from typing import Dict, List, Optional, Tuple
 import numpy as np
 from numba import cuda, set_num_threads
 
@@ -88,6 +88,41 @@ def _log(msg: str) -> None:
         except Exception:
             pass
     print(msg)
+
+
+def _compute_cuda_launch(
+    n_items: int,
+    preferred_threads: Optional[int],
+    min_blocks: int = 4,
+) -> Tuple[int, int]:
+    """Return (blocks, threads) tuned to avoid single-block launches."""
+    n = int(max(0, n_items))
+    if n <= 0:
+        return 1, 1
+
+    device = cuda.get_current_device()
+    warp = 32
+    max_threads = int(device.MAX_THREADS_PER_BLOCK)
+
+    threads = preferred_threads or 256
+    threads = int(max(1, threads))
+    threads = min(threads, max_threads)
+    if threads >= warp:
+        threads = ((threads + warp - 1) // warp) * warp
+
+    if n < threads:
+        if n >= warp:
+            target = max(warp, (n + min_blocks - 1) // min_blocks)
+            target = ((target + warp - 1) // warp) * warp
+            threads = min(threads, target)
+        else:
+            target = max(1, (n + min_blocks - 1) // min_blocks)
+            target = min(target, n)
+            threads = min(threads, target)
+
+    threads = max(1, min(threads, max_threads))
+    blocks = max(1, (n + threads - 1) // threads)
+    return blocks, threads
 
 
 """Helper functions moved to raystrack.utils.helpers"""
@@ -302,9 +337,7 @@ def view_factor_matrix(
             cp_dims = rng.random(5, dtype=np.float32)
 
             if use_gpu and gpu_raygen:
-                threads_gen = gpu_threads or 256
-                threads_gen = min(threads_gen, cuda.get_current_device().MAX_THREADS_PER_BLOCK)
-                blocks_gen = (n_rays + threads_gen - 1) // threads_gen
+                blocks_gen, threads_gen = _compute_cuda_launch(n_rays, gpu_threads)
                 if cuda_async:
                     kernel_build_rays[blocks_gen, threads_gen, stream](
                         d_u_grid,
@@ -368,17 +401,15 @@ def view_factor_matrix(
                         d_orig.copy_to_device(orig)
                         d_dirs.copy_to_device(dire)
 
-                threads = gpu_threads or 256
-                threads = min(threads, cuda.get_current_device().MAX_THREADS_PER_BLOCK)
-                blocks = (n_rays + threads - 1) // threads
+                blocks, threads = _compute_cuda_launch(n_rays, gpu_threads)
                 # Zero device hit buffers
-                zblocks = (hits_f_iter.size + threads - 1) // threads
+                zblocks, zthreads = _compute_cuda_launch(hits_f_iter.size, threads)
                 if cuda_async:
-                    kernel_zero_i64[zblocks, threads, stream](d_hf)
-                    kernel_zero_i64[zblocks, threads, stream](d_hb)
+                    kernel_zero_i64[zblocks, zthreads, stream](d_hf)
+                    kernel_zero_i64[zblocks, zthreads, stream](d_hb)
                 else:
-                    kernel_zero_i64[zblocks, threads](d_hf)
-                    kernel_zero_i64[zblocks, threads](d_hb)
+                    kernel_zero_i64[zblocks, zthreads](d_hf)
+                    kernel_zero_i64[zblocks, zthreads](d_hb)
 
                 if use_bvh_flag:
                     if cuda_async:
@@ -826,9 +857,7 @@ def view_factor_to_tregenza_sky(
                 d_tri_b = cuda.to_device(V_e[F_emit[:, 1]])
                 d_tri_c = cuda.to_device(V_e[F_emit[:, 2]])
 
-            threads = gpu_threads or 256
-            threads = min(threads, cuda.get_current_device().MAX_THREADS_PER_BLOCK)
-            blocks = (n_rays_once + threads - 1) // threads
+            blocks, threads = _compute_cuda_launch(n_rays_once, gpu_threads)
 
         for itr in range(max_iters):
             rng = np.random.default_rng(seed + idx_emit + itr)
@@ -895,10 +924,11 @@ def view_factor_to_tregenza_sky(
                 # Download hitmask and directions if needed for classification
                 # Bin on device to avoid host copies of directions
                 # Zero counts then classify sky-visible rays into 145 bins
+                count_blocks, count_threads = _compute_cuda_launch(145, threads)
                 if cuda_async:
-                    kernel_zero_i32[(145 + threads - 1) // threads, threads, stream](d_counts)
+                    kernel_zero_i32[count_blocks, count_threads, stream](d_counts)
                 else:
-                    kernel_zero_i32[(145 + threads - 1) // threads, threads](d_counts)
+                    kernel_zero_i32[count_blocks, count_threads](d_counts)
                 if cuda_async:
                     kernel_bin_tregenza[blocks, threads, stream](d_dirs, d_hit, d_counts)
                 else:

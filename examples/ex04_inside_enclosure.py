@@ -106,3 +106,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    from raystrack.utils.helpers import hold_console_open
+    hold_console_open()

@@ -1,5 +1,7 @@
 from __future__ import annotations
 from typing import Dict, Iterable, List, Tuple
+import os
+import sys
 import numpy as np
 
 
@@ -255,9 +257,28 @@ def enforce_reciprocity_only(
         result[sname] = row
 
 
+def hold_console_open(prompt: str = "Press Enter to close...") -> None:
+    """Keep the console window open when running scripts directly.
+
+    Controlled by the environment variable ``RAYSTRACK_HOLD_CONSOLE``.
+    Set it to ``0`` or ``false`` to disable the prompt.
+    """
+    flag = os.environ.get("RAYSTRACK_HOLD_CONSOLE", "1").lower()
+    if flag in {"0", "false", "no"}:
+        return
+    stdin = getattr(sys, "stdin", None)
+    if stdin is None or not stdin.isatty():
+        return
+    try:
+        input(prompt)
+    except EOFError:
+        pass
+
+
 __all__ = [
     "grid_from_density",
     "enforce_reciprocity_and_rowsum",
     "enforce_reciprocity_only",
+    "hold_console_open",
 ]
 
