@@ -8,6 +8,11 @@ Generates a simple street canyon geometry:
 - A road surface between facades sized 10x8 m.
 
 Saves meshes to "street_canyon.json" in this folder.
+
+All inputs are defined directly in the script: `story_h`, `stories`, `facade_width`,
+and `gap`. The function `rect_plane_x` builds one rectangular facade panel for a
+given height range, while `rect_plane_z` creates the road plane. No command-line
+arguments are required; edit the constants above to change the geometry.
 """
 import os
 import sys
@@ -111,4 +116,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

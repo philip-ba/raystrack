@@ -4,6 +4,20 @@ ex01_compute_vf
 
 Loads the street canyon geometry from ex00 and computes a view-factor matrix.
 Results are saved to vf_matrix.json in this folder.
+
+Key inputs and how to tweak them:
+- Geometry source: expects `street_canyon.json` produced by ex00; adjust the path
+  in `geom` if you moved the file.
+- Solver parameters (`params` dict):
+  * `samples`: quasi Monte Carlo grid resolution per surface -> samples /l² (higher = finer cells).
+  * `rays`: number of rays per cell (higher = lower noise, more compute).
+  * `seed`: Sobol sequence scrambler seed for reproducibility.
+  * `bvh`: acceleration structure selection (`auto`, `builtin`, `off`).
+  * `device`: `auto` picks a CUDA GPU when available, otherwise CPU.
+  * `max_iters`, `min_iters`: bounds for progressive refinement passes.
+  * `tol` + `tol_mode`: convergence criterion on the estimated standard error.
+  * `reciprocity`, `enforce_reciprocity_rowsum`: toggle reciprocity enforcement.
+  * `cuda_async`: enable asynchronous CUDA launches when running on GPU.
 """
 import os
 import sys

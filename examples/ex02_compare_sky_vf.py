@@ -9,6 +9,17 @@ Loads the street canyon geometry, computes:
    with discrete=False (merged "Sky").
 
 Prints a side-by-side comparison for each emitter.
+
+Inputs and tunables:
+- Requires `street_canyon.json` from ex00; the script augments it with an
+  artificial "infinite" ground plane built from the scene bounds (`margin`
+  controls the extra extent).
+- Shared sampling `settings` define `samples`, `rays`, `bvh`, `device`,
+  and optional CUDA optimizations (`cuda_async`, `gpu_raygen`).
+- Scene VF call: `max_iters`, `tol`, `tol_mode`, and reciprocity flags keep the
+  solver on a single progressive pass suited for comparison.
+- Sky conversion: `view_factor_to_tregenza_sky` uses the same sampling and
+  `discrete=False` to collapse the 145 bins; change to `True` for directional bins.
 """
 import sys
 from pathlib import Path

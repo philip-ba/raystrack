@@ -6,6 +6,15 @@ Constructs a simple 6-face box (unit cube) with outward-facing normals,
 then computes the inside view-factor matrix by enabling `flip_faces=True`.
 
 Results are printed and saved to `inside_vf_matrix.json` in this folder.
+
+Inputs and parameters to know:
+- Geometry is created on the fly by `make_box_unit_cube`; edit the vertex
+  positions there if you want different dimensions or orientations.
+- `flip_faces=True` in the solver call reverses emission so rays travel inward.
+- Sampling and convergence controls mirror earlier examples: adjust `samples`,
+  `rays`, `seed`, `max_iters`, `tol`, `tol_mode`, and `min_iters` to trade cost
+  versus accuracy. Reciprocity enforcement is left disabled to preserve the raw
+  view factors of the closed cavity.
 """
 from __future__ import annotations
 
