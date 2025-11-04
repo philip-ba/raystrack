@@ -1,4 +1,8 @@
-# raystrack
+# Raystrack
+
+<p align="center">
+  <img src="raystrack_icon.svg" alt="Raystrack icon" width="160">
+</p>
 
 Lightweight Monte-Carlo view-factor solver for polygonal meshes.
 
