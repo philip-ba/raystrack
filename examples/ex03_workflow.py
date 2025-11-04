@@ -63,8 +63,8 @@ def main():
         tol=1e-5,
         tol_mode="stderr",  # matrix algorithm supports 'delta' and 'stderr'
         min_iters=5,
-        enforce_reciprocity_rowsum=False,
-        reciprocity = False, # True means that all surfaces get extra weighted vf to match rowsum = 1; False means there is a rest
+        enforce_reciprocity_rowsum=False, # True means that all surfaces get extra weighted vf to match rowsum = 1; False means there is a rest
+        reciprocity = False, 
     )
     sky_params = dict(
         samples=16,

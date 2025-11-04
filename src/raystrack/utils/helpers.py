@@ -138,8 +138,126 @@ def enforce_reciprocity_and_rowsum(
         result[sname] = row
 
 
+def enforce_reciprocity_only(
+    result: Dict[str, Dict[str, float]],
+    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
+    tol: float = 1e-12,
+) -> None:
+    """In-place adjust result so that reciprocity holds without row scaling."""
+    if tol <= 0.0:
+        tol = 1e-12
+
+    n = len(meshes)
+    names = [m[0] for m in meshes]
+    name_to_idx = {name: i for i, name in enumerate(names)}
+
+    areas: List[float] = []
+    for _, V_a, F_a in meshes:
+        A_a = 0.5 * np.linalg.norm(
+            np.cross(
+                V_a[F_a[:, 1]] - V_a[F_a[:, 0]],
+                V_a[F_a[:, 2]] - V_a[F_a[:, 0]],
+            ),
+            axis=1,
+        )
+        areas.append(float(A_a.sum()))
+    A = np.asarray(areas, dtype=np.float64)
+
+    def base_of(key: str) -> str:
+        if key.endswith("_front"):
+            return key[:-6]
+        if key.endswith("_back"):
+            return key[:-5]
+        return key
+
+    F = np.zeros((n, n), dtype=np.float64)
+    for si, sname in enumerate(names):
+        row = result.get(sname, {})
+        if not isinstance(row, dict):
+            continue
+        accum: Dict[str, float] = {}
+        for rkey, val in row.items():
+            b = base_of(rkey)
+            accum[b] = accum.get(b, 0.0) + float(val)
+        for bname, v in accum.items():
+            j = name_to_idx.get(bname, None)
+            if j is None:
+                continue
+            F[si, j] = v
+
+    F_new = F.copy()
+    for i in range(n):
+        Ai = A[i]
+        for j in range(i + 1, n):
+            Aj = A[j]
+            fij = F[i, j]
+            fji = F[j, i]
+            if fij <= tol and fji <= tol:
+                F_new[i, j] = 0.0
+                F_new[j, i] = 0.0
+                continue
+            gij = 0.5 * (Ai * fij + Aj * fji)
+            if Ai > 0.0:
+                F_new[i, j] = max(gij / Ai, 0.0)
+            else:
+                F_new[i, j] = 0.0
+            if Aj > 0.0:
+                F_new[j, i] = max(gij / Aj, 0.0)
+            else:
+                F_new[j, i] = 0.0
+
+    for si, sname in enumerate(names):
+        row = result.get(sname, {})
+        if not isinstance(row, dict):
+            row = {}
+        fb: Dict[str, Tuple[float, float]] = {}
+        for rkey, val in row.items():
+            if rkey.endswith("_front"):
+                base = rkey[:-6]
+                cur_f, cur_b = fb.get(base, (0.0, 0.0))
+                fb[base] = (cur_f + float(val), cur_b)
+            elif rkey.endswith("_back"):
+                base = rkey[:-5]
+                cur_f, cur_b = fb.get(base, (0.0, 0.0))
+                fb[base] = (cur_f, cur_b + float(val))
+            else:
+                base = rkey
+                cur_f, cur_b = fb.get(base, (0.0, 0.0))
+                fb[base] = (cur_f, cur_b + float(val))
+
+        for bj, rname in enumerate(names):
+            if si == bj:
+                continue
+            t_new = float(max(F_new[si, bj], 0.0))
+            cur_f, cur_b = fb.get(rname, (0.0, 0.0))
+            t_old = cur_f + cur_b
+            if t_old > 0.0:
+                s = t_new / t_old
+                new_f = cur_f * s
+                new_b = cur_b * s
+            else:
+                new_f = 0.0
+                new_b = t_new
+
+            front_key = f"{rname}_front"
+            back_key = f"{rname}_back"
+
+            if new_f > tol:
+                row[front_key] = new_f
+            elif front_key in row:
+                del row[front_key]
+
+            if new_b > tol:
+                row[back_key] = new_b
+            elif back_key in row:
+                del row[back_key]
+
+        result[sname] = row
+
+
 __all__ = [
     "grid_from_density",
     "enforce_reciprocity_and_rowsum",
+    "enforce_reciprocity_only",
 ]
 

@@ -4,7 +4,10 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from .main import view_factor_matrix, view_factor_to_tregenza_sky
-from .utils.helpers import enforce_reciprocity_and_rowsum as _enforce_reciprocity_and_rowsum
+from .utils.helpers import (
+    enforce_reciprocity_and_rowsum as _enforce_reciprocity_and_rowsum,
+    enforce_reciprocity_only as _enforce_reciprocity_only,
+)
 
 
 def _row_sum(row: Dict[str, float]) -> float:
@@ -77,10 +80,10 @@ def view_factor_outside_workflow(
     threshold = abs(float(threshold)) if threshold is not None else max(tol_matrix, tol_sky)
 
     mesh_names = [name for name, _, _ in meshes]
-    scene_targets = {name: max(0.0, _row_sum(vf_scene.get(name, {}))) for name in mesh_names}
+    scene_totals = {name: max(0.0, _row_sum(vf_scene.get(name, {}))) for name in mesh_names}
 
-    if reciprocity_flag or enforce_scene:
-        row_targets = [scene_targets.get(name, 0.0) for name in mesh_names]
+    if enforce_scene:
+        row_targets = [scene_totals.get(name, 0.0) for name in mesh_names]
         _enforce_reciprocity_and_rowsum(vf_scene, meshes, None, row_targets=row_targets)
 
     rest_vf: Dict[str, Dict[str, float]] = {}
@@ -114,9 +117,11 @@ def view_factor_outside_workflow(
 
         sky_totals[emitter] = max(0.0, sky_total)
 
-    if reciprocity_flag or enforce_scene:
+    if enforce_scene:
         row_targets = [max(0.0, 1.0 - sky_totals.get(name, 0.0)) for name in mesh_names]
         _enforce_reciprocity_and_rowsum(vf_scene, meshes, None, row_targets=row_targets)
+    elif reciprocity_flag:
+        _enforce_reciprocity_only(vf_scene, meshes)
 
     for emitter in mesh_names:
         row = vf_scene.get(emitter, {})
