@@ -6,7 +6,7 @@ Loads the street canyon geometry, computes:
 1) Regular view-factor matrix between scene meshes and derives a "sky" VF
    as 1 - sum(scene hits) per emitter.
 2) Directional (Radiance-style) Tregenza sky VF via view_factor_to_tregenza_sky
-   with discrete=False (merged "Sky").
+   (merged "Sky").
 
 Prints a side-by-side comparison for each emitter.
 
@@ -19,7 +19,7 @@ Inputs and tunables:
 - Scene VF call: `max_iters`, `tol`, `tol_mode`, and reciprocity flags keep the
   solver on a single progressive pass suited for comparison.
 - Sky conversion: `view_factor_to_tregenza_sky` uses the same sampling and
-  `discrete=False` to collapse the 145 bins; change to `True` for directional bins.
+  returns a merged "Sky" result.
 """
 import sys
 from pathlib import Path
@@ -36,6 +36,7 @@ def main():
     ensure_repo_on_path()
     from raystrack.io import load_meshes_json
     from raystrack import view_factor_matrix, view_factor_to_tregenza_sky
+    from raystrack.params import MatrixParams, SkyParams
 
     here = Path(__file__).resolve().parent
     geom = here / "street_canyon.json"
@@ -84,18 +85,25 @@ def main():
         gpu_raygen=True,
     )
 
-    print("Computing regular VF matrix (all-to-all including ground)...")
-    VF_scene = view_factor_matrix(
-        meshes_with_ground,
+    matrix_params = MatrixParams(
+        **settings,
         max_iters=50,  # single pass (directional sky is single pass too)
         tol=1e-4,
         reciprocity=False,
-        tol_mode="delta",
+        tol_mode="stderr",
         min_iters=1,
-        min_total_rays=0,
         enforce_reciprocity_rowsum=False,
-        **settings,
     )
+
+    sky_params = SkyParams(
+        **settings,
+        max_iters=50,
+        tol=1e-4,
+        seed=20,
+    )
+
+    print("Computing regular VF matrix (all-to-all including ground)...")
+    VF_scene = view_factor_matrix(meshes_with_ground, params=matrix_params)
 
     # 1 - sum(row) gives the fraction of rays that missed all scene geometry
     # (includes sky and any downward misses beyond geometry extents)
@@ -108,15 +116,7 @@ def main():
     print("Computing directional Tregenza sky VF (no sky geometry, merged)...")
     # Exclude the infinite ground mesh from sky VF (not an emitter, not considered)
     meshes_no_ground = [m for m in meshes_with_ground if m[0] != "infite_ground"]
-    VF_sky = view_factor_to_tregenza_sky(
-        meshes_no_ground,
-        discrete=False,
-        sky_name="Sky",
-        max_iters=50,
-        tol=0.0001,
-        seed=20,
-        **settings,
-    )
+    VF_sky = view_factor_to_tregenza_sky(meshes_no_ground, params=sky_params)
 
     # Compare per emitter
     names = [name for name, _, _ in meshes_with_ground if name != "infite_ground"]

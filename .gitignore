@@ -1,2 +1,20 @@
 
 build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+PKG-INFO
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+*.nbc
+*.nbi
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml

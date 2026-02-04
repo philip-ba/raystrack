@@ -69,27 +69,29 @@ def main():
     ensure_repo_on_path()
     from raystrack import view_factor_matrix
     from raystrack.io import save_vf_matrix_json
+    from raystrack.params import MatrixParams
+    from raystrack.utils.geometry import flip_meshes
 
     meshes = make_box_unit_cube()
+    meshes = flip_meshes(meshes)
 
-    # Use flip_faces=True so emitters shoot rays inward (inside the enclosure)
-    params = dict(
+    # Faces are flipped so emitters shoot rays inward (inside the enclosure)
+    params = MatrixParams(
         samples=16,                 # modest density for a quick example
         rays=128,
         seed=42,
         bvh="auto",
         device="auto",
-        flip_faces=True,            # key for inside view-factors
-        reciprocity=False,          # compute full matrix directly
-        enforce_reciprocity_rowsum=False,  # avoid scaling artefacts for this demo
-        max_iters=200,
-        tol=1e-4,
+        reciprocity=False,         
+        enforce_reciprocity_rowsum=False,  
+        max_iters=1000,
+        tol=1e-3,
         tol_mode="stderr",
         min_iters=10,
         cuda_async=True,
     )
 
-    VF = view_factor_matrix(meshes, **params)
+    VF = view_factor_matrix(meshes, params=params)
 
     # Print a compact summary per face
     for name in VF:

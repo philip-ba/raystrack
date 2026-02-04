@@ -14,8 +14,6 @@ except:
     pass
 
 
-# Be resilient to namespace-package edge cases: prefer utils __init__ export,
-# but fall back to explicit submodule import if needed.
 try:  # pragma: no cover - import robustness
     from .utils import cached_halton  # type: ignore[attr-defined]
 except Exception:  # pragma: no cover
@@ -44,6 +42,7 @@ from .utils.helpers import (
     grid_from_density as _grid_from_density,
     enforce_reciprocity_and_rowsum as _enforce_reciprocity_and_rowsum,
 )
+from .params import MatrixParams, SkyParams
 
 _LOG_PROC = None
 
@@ -130,55 +129,35 @@ def _compute_cuda_launch(
 
 def view_factor_matrix(
     meshes: List[Tuple[str, np.ndarray, np.ndarray]],
-    samples: int = 256,
-    rays: int = 256,
-    seed: int = 0,
-    gpu_threads=None,
-    bvh: str = "auto",
-    device: str = "auto",
-    flip_faces: bool = False,
-    max_iters: int = 1,
-    tol: float = 1e-5,
-    reciprocity: bool = False,
-    tol_mode: str = "stderr",
-    min_iters: int = 1,
-    min_total_rays: int = 0,
-    return_stats: bool = False,
-    cuda_async: bool = True,
-    gpu_raygen: bool = False,
-    enforce_reciprocity_rowsum: bool = False,
+    params: MatrixParams,
 ) -> Dict[str, Dict[str, float]]:
     """Compute ``F(i→j)`` for every pair of surfaces in ``meshes``.
 
     Parameters
     ----------
-    max_iters : int, optional
-        Maximum number of Monte-Carlo iterations. ``1`` reproduces the
-        previous behaviour.
-    tol : float, optional
-        Convergence tolerance. Interpretation depends on ``tol_mode``.
-    tol_mode : {"delta", "stderr"}, optional
-        - "delta": stop when successive cumulative estimates change by < tol.
-        - "stderr": stop when per-iteration replicate standard error is <= tol.
-    min_iters : int, optional
-        Minimum number of Monte-Carlo iterations before a convergence check.
-    min_total_rays : int, optional
-        Minimum number of traced rays before a convergence check.
-    reciprocity : bool, optional
-        Also compute inverse view factors via reciprocity. Defaults to ``False``.
-    return_stats : bool, optional
-        When True, also return a per-entry standard error dictionary (same
-        structure and keys as the result rows) computed from per-iteration
-        estimates. Defaults to False.
-    cuda_async : bool, optional
-        Use pinned host memory and CUDA streams to overlap transfers and compute.
-        Default True.
-    gpu_raygen : bool, optional
-        Generate rays on the GPU (avoids H2D for rays). Default False.
-    enforce_reciprocity_rowsum : bool, optional
-        After computation, enforce reciprocity and make each row sum to 1 using
-        symmetric diagonal scaling. Default False.
+    params : MatrixParams
+        Sampling and convergence controls for the matrix solver.
     """
+    if not isinstance(params, MatrixParams):
+        raise TypeError("params must be a MatrixParams instance")
+    p = params.as_dict()
+    samples = p["samples"]
+    rays = p["rays"]
+    seed = p["seed"]
+    bvh = p["bvh"]
+    device = p["device"]
+    cuda_async = p["cuda_async"]
+    gpu_raygen = p["gpu_raygen"]
+    max_iters = p["max_iters"]
+    tol = p["tol"]
+    tol_mode = p["tol_mode"]
+    min_iters = p["min_iters"]
+    reciprocity = p["reciprocity"]
+    enforce_reciprocity_rowsum = p["enforce_reciprocity_rowsum"]
+    gpu_threads = None
+    flip_faces = False
+    min_total_rays = 0
+    return_stats = False
     # Device and BVH selection
     have_cuda = cuda.is_available()
     dev = (device or "auto").lower()
@@ -597,7 +576,7 @@ def view_factor_matrix(
     return result
 
 
-def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
+def view_factor(sender, receiver, params: MatrixParams):
     """Return F(sender->receiver) using the same Monte-Carlo algorithm.
 
     Parameters
@@ -608,14 +587,8 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
     receiver : tuple or list[tuple]
         A single mesh tuple or a list of tuples describing the receiving
         surface(s).
-    *args, **kw :
-        Additional arguments forwarded to :func:`view_factor_matrix`.
-    max_iters : int, optional
-        Maximum number of Monte-Carlo iterations. Defaults to ``1``.
-    tol : float, optional
-        Stop iterating when all view factors change less than ``tol``.
-    reciprocity : bool, optional
-        Also compute inverse view factors via reciprocity. Defaults to ``False``.
+    params : MatrixParams
+        Sampling and convergence controls for the matrix solver.
 
     Returns
     -------
@@ -630,26 +603,7 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
     senders = [sender] if isinstance(sender, tuple) else list(sender)
     receivers = [receiver] if isinstance(receiver, tuple) else list(receiver)
     meshes = senders + receivers
-    vf_all = view_factor_matrix(
-        meshes,
-        samples=kw.get("samples", 256),
-        rays=kw.get("rays", 256),
-        seed=kw.get("seed", 0),
-        gpu_threads=kw.get("gpu_threads", None),
-        bvh=kw.get("bvh", "auto"),
-        device=kw.get("device", "auto"),
-        flip_faces=kw.get("flip_faces", False),
-        max_iters=kw.get("max_iters", 1),
-        tol=kw.get("tol", 1e-5),
-        reciprocity=reciprocity,
-        tol_mode=kw.get("tol_mode", "delta"),
-        min_iters=kw.get("min_iters", 1),
-        min_total_rays=kw.get("min_total_rays", 0),
-        return_stats=False,
-        cuda_async=kw.get("cuda_async", True),
-        gpu_raygen=kw.get("gpu_raygen", False),
-        enforce_reciprocity_rowsum=kw.get("enforce_reciprocity_rowsum", False),
-    )
+    vf_all = view_factor_matrix(meshes, params=params)
     sender_names = [s[0] for s in senders]
     out = {name: vf_all.get(name, {}) for name in sender_names}
     return out
@@ -657,24 +611,7 @@ def view_factor(sender, receiver, *args, reciprocity: bool = False, **kw):
 
 def view_factor_to_tregenza_sky(
     meshes: List[Tuple[str, np.ndarray, np.ndarray]],
-    samples: int = 256,
-    rays: int = 256,
-    seed: int = 0,
-    device: str = "auto",
-    bvh: str = "auto",
-    gpu_threads=None,
-    cuda_async: bool = True,
-    gpu_raygen: bool = False,
-    flip_faces: bool = False,
-    discrete: bool = False,
-    sky_name: str = "Sky",
-    patch_prefix: str = "Sky_Patch_",
-    # Monte Carlo control
-    max_iters: int = 1,
-    tol: float = 1e-5,
-    tol_mode: str = "stderr",
-    min_iters: int = 1,
-    min_total_rays: int = 0,
+    params: SkyParams,
 ) -> Dict[str, Dict[str, float]]:
     """Directional Tregenza sky view factors (no finite sky geometry).
 
@@ -686,40 +623,36 @@ def view_factor_to_tregenza_sky(
     ----------
     meshes : list[(str, V, F)]
         Scene meshes. ``V`` is ``(N,3)`` float32/float64, ``F`` is ``(M,3)`` int.
-    samples : int
-        Quasi-Monte Carlo grid per side used for emission per emitter.
-    rays : int
-        Rays per grid cell.
-    seed : int
-        Base RNG seed. Each emitter/iteration derives its own sub-seed.
-    device : {"auto","gpu","cpu"}
-        Visibility device. GPU uses CUDA hitmask kernels. CPU uses numba njit.
-    bvh : {"auto","off","builtin"}
-        Toggle a built-in BVH for faster visibility.
-    gpu_threads : int, optional
-        CUDA threads per block (leave None for a reasonable default).
-    cuda_async : bool
-        Use pinned memory + streams for overlap on CUDA.
-    gpu_raygen : bool
-        Generate rays on GPU to avoid H2D copies of rays.
-    flip_faces : bool
-        Flip emitter triangle winding during emission sampling.
-    discrete : bool
-        If False, return one merged key ``sky_name`` per emitter. If True,
-        return 145 entries named ``f"{patch_prefix}{i}"``.
-    sky_name : str
-        Name used for the merged sky entry when ``discrete=False``.
-    patch_prefix : str
-        Prefix for discrete patch names when ``discrete=True``.
-    max_iters, tol, tol_mode, min_iters, min_total_rays
-        Convergence controls on sky fractions. ``tol_mode`` accepts
-        "delta" or "stderr" (true replicate standard error).
+    params : SkyParams
+        Sampling and convergence controls for the sky solver. The sky result is
+        returned as a single merged ``"Sky"`` entry per emitter.
 
     Returns
     -------
     dict[str, dict[str, float]]
-        Per-emitter mapping to either a single merged sky entry or 145 patches.
+        Per-emitter mapping to a single merged sky entry.
     """
+    if not isinstance(params, SkyParams):
+        raise TypeError("params must be a SkyParams instance")
+    p = params.as_dict()
+    samples = p["samples"]
+    rays = p["rays"]
+    seed = p["seed"]
+    bvh = p["bvh"]
+    device = p["device"]
+    cuda_async = p["cuda_async"]
+    gpu_raygen = p["gpu_raygen"]
+    max_iters = p["max_iters"]
+    tol = p["tol"]
+    tol_mode = p["tol_mode"]
+    min_iters = p["min_iters"]
+    gpu_threads = None
+    flip_faces = False
+    discrete = False
+    sky_name = "Sky"
+    patch_prefix = "Sky_Patch_"
+    min_total_rays = 0
+
     # Directional Tregenza classification (no finite sky geometry)
     if len(meshes) == 0:
         raise ValueError("meshes must not be empty")

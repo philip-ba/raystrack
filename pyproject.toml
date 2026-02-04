@@ -25,7 +25,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Philip-rptu/raystrack"
+Homepage = "https://github.com/philip-ba/raystrack"
 
 # Ensure setuptools finds the package in the src/ layout for editable installs
 [tool.setuptools]

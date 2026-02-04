@@ -8,7 +8,7 @@ Results are saved to vf_matrix.json in this folder.
 Key inputs and how to tweak them:
 - Geometry source: expects `street_canyon.json` produced by ex00; adjust the path
   in `geom` if you moved the file.
-- Solver parameters (`params` dict):
+- Solver parameters (`MatrixParams`):
   * `samples`: quasi Monte Carlo grid resolution per surface -> samples /l² (higher = finer cells).
   * `rays`: number of rays per cell (higher = lower noise, more compute).
   * `seed`: Sobol sequence scrambler seed for reproducibility.
@@ -36,6 +36,7 @@ def main():
     ensure_repo_on_path()
     from raystrack.io import load_meshes_json, save_vf_matrix_json
     from raystrack import view_factor_matrix
+    from raystrack.params import MatrixParams
 
     here = Path(__file__).resolve().parent
     geom = here / "street_canyon.json"
@@ -46,7 +47,7 @@ def main():
     meshes = load_meshes_json(str(geom))
 
     # Modest settings 
-    params = dict(
+    params = MatrixParams(
         samples=16,     # grid per side
         rays=128,       # rays per cell
         seed=1,
@@ -61,7 +62,7 @@ def main():
         cuda_async=True,
     )
 
-    VF = view_factor_matrix(meshes, **params)
+    VF = view_factor_matrix(meshes, params=params)
     out = here / "vf_matrix.json"
     save_path = save_vf_matrix_json(VF, str(out))
     print(f"Saved view-factor matrix to: {save_path}")

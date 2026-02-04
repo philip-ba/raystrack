@@ -1,6 +1,6 @@
 # Raystrack
 
-<p align="center">
+<p align="left">
   <img src="raystrack_icon.svg" alt="Raystrack icon" width="160">
 </p>
 
@@ -51,7 +51,7 @@ scripts directly for usage guidance and tunable options.
 ## Quick start (Python)
 ```python
 import numpy as np
-from raystrack import view_factor_matrix
+from raystrack import view_factor_matrix, MatrixParams
 
 # Each mesh is a tuple: (name: str, V: (N,3) float32, F: (M,3) int32)
 V_a = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], dtype=np.float32)
@@ -65,15 +65,34 @@ meshes = [
     ("B", V_b, F_b),
 ]
 
-res = view_factor_matrix(
-    meshes,
+params = MatrixParams(
     samples=256,   # sampling density per unit area (QMC grid)
     rays=256,      # rays per cell
     bvh="builtin", # optional BVH acceleration (auto|off|builtin)
     reciprocity=True,
 )
 
+res = view_factor_matrix(meshes, params=params)
+
 print(res["A"])  # e.g. {"B_front": 0.5, "B_back": 0.0, ...}
+```
+
+## Parameter presets
+Raystrack uses two parameter containers to keep configuration consistent:
+- `MatrixParams`: controls the scene-to-scene view-factor solve (sampling, BVH,
+  device selection, convergence tolerances, and reciprocity enforcement).
+- `SkyParams`: controls the sky view-factor solve (sampling, device selection,
+  and convergence tolerances for the merged `"Sky"` output).
+
+Typical usage:
+```python
+from raystrack import MatrixParams, SkyParams, view_factor_matrix, view_factor_to_tregenza_sky
+
+matrix_params = MatrixParams(samples=32, rays=256, reciprocity=True)
+sky_params = SkyParams(samples=32, rays=256)
+
+vf_scene = view_factor_matrix(meshes, params=matrix_params)
+vf_sky = view_factor_to_tregenza_sky(meshes, params=sky_params)
 ```
 
 ## License
