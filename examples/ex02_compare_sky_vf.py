@@ -100,6 +100,7 @@ def main():
         max_iters=50,
         tol=1e-4,
         seed=20,
+        discrete=False,
     )
 
     print("Computing regular VF matrix (all-to-all including ground)...")

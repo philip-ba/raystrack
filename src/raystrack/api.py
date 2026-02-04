@@ -29,7 +29,7 @@ def view_factor_outside_workflow(
 
     Steps
     - Compute regular view-factor matrix (scene-to-scene).
-    - Compute Radiance-style sky view factor(s): merged (Sky).
+    - Compute Radiance-style sky view factor(s): merged (Sky) or 145 patches.
     - For each emitter, compute the residual fraction required so that the
       total view factor sums to one: ``1 - sum(scene VFs) - sky_total``.
 
@@ -46,7 +46,7 @@ def view_factor_outside_workflow(
     vf_scene : dict
         Scene view-factor matrix as returned by :func:`view_factor_matrix`.
     sky_vf : dict
-        Sky view factor(s): {'Sky': vf} per emitter.
+        Sky view factor(s): either {'Sky': vf} or {'Sky_Patch_i': vf} per emitter.
     rest_vf : dict
         Residual view factor per emitter (``{"Rest": value}``) so that
         ``scene + sky + rest = 1``.
@@ -86,14 +86,22 @@ def view_factor_outside_workflow(
         row = vf_scene.get(emitter, {})
         scene_sum = _row_sum(row)
         sky_row = dict(sky_vf.get(emitter, {}))
-        sky_total = float(sky_row.get("Sky", 0.0))
+        if sky_params.discrete:
+            sky_total = float(sum(float(v) for v in sky_row.values()))
+        else:
+            sky_total = float(sky_row.get("Sky", 0.0))
 
         if scene_sum + sky_total > 1.0 + threshold:
             if sky_total > 0.0:
                 allowed_sky = max(0.0, 1.0 - scene_sum)
                 scale = min(1.0, allowed_sky / sky_total) if sky_total else 0.0
-                sky_row["Sky"] = float(sky_row.get("Sky", 0.0)) * scale
-                sky_total = float(sky_row.get("Sky", 0.0))
+                if sky_params.discrete:
+                    for key, value in list(sky_row.items()):
+                        sky_row[key] = float(value) * scale
+                    sky_total = float(sum(float(v) for v in sky_row.values()))
+                else:
+                    sky_row["Sky"] = float(sky_row.get("Sky", 0.0)) * scale
+                    sky_total = float(sky_row.get("Sky", 0.0))
                 sky_vf[emitter] = sky_row
             else:
                 sky_total = 0.0
@@ -110,7 +118,10 @@ def view_factor_outside_workflow(
         row = vf_scene.get(emitter, {})
         scene_sum = _row_sum(row)
         sky_row = dict(sky_vf.get(emitter, {}))
-        sky_total = float(sky_row.get("Sky", 0.0))
+        if sky_params.discrete:
+            sky_total = float(sum(float(v) for v in sky_row.values()))
+        else:
+            sky_total = float(sky_row.get("Sky", 0.0))
 
         combined = scene_sum + sky_total
         if combined > 1.0 + threshold and sky_total > 0.0:
@@ -120,8 +131,13 @@ def view_factor_outside_workflow(
                 sky_total = 0.0
             else:
                 scale = min(1.0, allowed_sky / sky_total)
-                sky_row["Sky"] = float(sky_row.get("Sky", 0.0)) * scale
-                sky_total = float(sky_row.get("Sky", 0.0))
+                if sky_params.discrete:
+                    for key, value in list(sky_row.items()):
+                        sky_row[key] = float(value) * scale
+                    sky_total = float(sum(float(v) for v in sky_row.values()))
+                else:
+                    sky_row["Sky"] = float(sky_row.get("Sky", 0.0)) * scale
+                    sky_total = float(sky_row.get("Sky", 0.0))
             sky_vf[emitter] = sky_row
             combined = scene_sum + sky_total
 

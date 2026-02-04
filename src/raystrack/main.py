@@ -155,7 +155,7 @@ def view_factor_matrix(
     reciprocity = p["reciprocity"]
     enforce_reciprocity_rowsum = p["enforce_reciprocity_rowsum"]
     gpu_threads = None
-    flip_faces = False
+    flip_faces = p["flip_faces"]
     min_total_rays = 0
     return_stats = False
     # Device and BVH selection
@@ -624,8 +624,9 @@ def view_factor_to_tregenza_sky(
     meshes : list[(str, V, F)]
         Scene meshes. ``V`` is ``(N,3)`` float32/float64, ``F`` is ``(M,3)`` int.
     params : SkyParams
-        Sampling and convergence controls for the sky solver. The sky result is
-        returned as a single merged ``"Sky"`` entry per emitter.
+        Sampling and convergence controls for the sky solver. Use
+        ``discrete=True`` to return 145 directional patches or ``False`` for a
+        single merged ``"Sky"`` entry per emitter.
 
     Returns
     -------
@@ -646,9 +647,9 @@ def view_factor_to_tregenza_sky(
     tol = p["tol"]
     tol_mode = p["tol_mode"]
     min_iters = p["min_iters"]
+    discrete = p["discrete"]
     gpu_threads = None
     flip_faces = False
-    discrete = False
     sky_name = "Sky"
     patch_prefix = "Sky_Patch_"
     min_total_rays = 0

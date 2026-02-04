@@ -82,13 +82,14 @@ Raystrack uses two parameter containers to keep configuration consistent:
 - `MatrixParams`: controls the scene-to-scene view-factor solve (sampling, BVH,
   device selection, convergence tolerances, and reciprocity enforcement).
 - `SkyParams`: controls the sky view-factor solve (sampling, device selection,
-  and convergence tolerances for the merged `"Sky"` output).
+  and convergence tolerances, plus `discrete=True` for 145 sky patches or
+  `False` for a single merged `"Sky"` output).
 
 Typical usage:
 ```python
 from raystrack import MatrixParams, SkyParams, view_factor_matrix, view_factor_to_tregenza_sky
 
-matrix_params = MatrixParams(samples=32, rays=256, reciprocity=True)
+matrix_params = MatrixParams(samples=32, rays=256, reciprocity=True, flip_faces=False)
 sky_params = SkyParams(samples=32, rays=256)
 
 vf_scene = view_factor_matrix(meshes, params=matrix_params)

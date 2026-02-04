@@ -38,6 +38,8 @@ class MatrixParams:
     enforce_reciprocity_rowsum : bool
         After computation, enforce reciprocity and make each row sum to 1 using
         symmetric diagonal scaling.
+    flip_faces : bool
+        If True, flip emitter triangle winding during emission sampling.
     """
     samples: int = 16
     rays: int = 128
@@ -52,9 +54,14 @@ class MatrixParams:
     min_iters: int = 5
     reciprocity: bool = True
     enforce_reciprocity_rowsum: bool = False
+    flip_faces: bool = False
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MatrixParams":
+        return cls(**data)
 
 
 @dataclass
@@ -86,6 +93,9 @@ class SkyParams:
         - "stderr": stop when per-iteration replicate standard error is <= tol.
     min_iters : int
         Minimum number of Monte-Carlo iterations before a convergence check.
+    discrete : bool
+        If True, return 145 directional patches. If False, return a single
+        merged "Sky" entry.
     """
     samples: int = 16
     rays: int = 128
@@ -98,9 +108,14 @@ class SkyParams:
     tol: float = 1e-4
     tol_mode: str = "stderr"
     min_iters: int = 5
+    discrete: bool = False
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SkyParams":
+        return cls(**data)
 
 
 __all__ = ["MatrixParams", "SkyParams"]

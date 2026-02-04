@@ -78,6 +78,7 @@ def main():
         tol=1e-5,          # stderr target for merged sky
         tol_mode="stderr", # use true stderr convergence for sky
         min_iters=5,
+        discrete=False,
     )
 
     # Use merged sky output

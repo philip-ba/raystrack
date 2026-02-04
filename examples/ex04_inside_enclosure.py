@@ -70,18 +70,16 @@ def main():
     from raystrack import view_factor_matrix
     from raystrack.io import save_vf_matrix_json
     from raystrack.params import MatrixParams
-    from raystrack.utils.geometry import flip_meshes
-
     meshes = make_box_unit_cube()
-    meshes = flip_meshes(meshes)
 
-    # Faces are flipped so emitters shoot rays inward (inside the enclosure)
+    # Use flip_faces=True so emitters shoot rays inward (inside the enclosure)
     params = MatrixParams(
         samples=16,                 # modest density for a quick example
         rays=128,
         seed=42,
         bvh="auto",
         device="auto",
+        flip_faces=True,
         reciprocity=False,         
         enforce_reciprocity_rowsum=False,  
         max_iters=1000,
