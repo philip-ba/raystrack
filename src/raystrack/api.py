@@ -3,7 +3,12 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from .main import view_factor_matrix, view_factor_to_tregenza_sky
+from .main import (
+    outside_workflow_shareable,
+    view_factor_matrix,
+    view_factor_matrix_and_sky,
+    view_factor_to_tregenza_sky,
+)
 from .params import MatrixParams, SkyParams
 from .utils.helpers import (
     enforce_reciprocity_and_rowsum as _enforce_reciprocity_and_rowsum,
@@ -33,20 +38,41 @@ def view_factor_outside_workflow(
     - For each emitter, compute the residual fraction required so that the
       total view factor sums to one: ``1 - sum(scene VFs) - sky_total``.
 
+    Shared-ray optimization
+    -----------------------
+    When ``matrix_params`` and ``sky_params`` use the same sampling and device
+    configuration, this workflow traces one set of rays per emitter and derives
+    both outputs from that shared sample set. In that mode:
+
+    - scene hits are accumulated into the view-factor matrix
+    - rays that miss all geometry are classified directly into the sky result
+
+    This avoids tracing the same rays twice. When the two parameter sets are
+    not compatible, the workflow falls back to the legacy behaviour of calling
+    :func:`view_factor_matrix` and :func:`view_factor_to_tregenza_sky`
+    separately.
+
     Parameters
     ----------
     meshes : list of (name, V, F)
         Scene meshes (float32/float64 vertices, int faces).
     matrix_params, sky_params : MatrixParams
-        Passed through to view_factor_matrix and view_factor_to_tregenza_sky
-        respectively. Provide tolerances via 'tol' and 'tol_mode'.
+        Passed through to the matrix and sky solvers. To enable the shared-ray
+        path, the two parameter sets must agree on the ray-generation settings
+        (`samples`, `rays`, `seed`) and execution settings (`bvh`, `device`,
+        `cuda_async`, `gpu_raygen`). The matrix solve must also use
+        ``flip_faces=False``.
 
     Returns
     -------
     vf_scene : dict
-        Scene view-factor matrix as returned by :func:`view_factor_matrix`.
+        Scene view-factor matrix. For compatible parameter sets this comes from
+        the shared-ray solve; otherwise it is returned by
+        :func:`view_factor_matrix`.
     sky_vf : dict
-        Sky view factor(s): either {'Sky': vf} or {'Sky_Patch_i': vf} per emitter.
+        Sky view factor(s): either {'Sky': vf} or {'Sky_Patch_i': vf} per
+        emitter. For compatible parameter sets this is derived from the same
+        rays that produced ``vf_scene``.
     rest_vf : dict
         Residual view factor per emitter (``{"Rest": value}``) so that
         ``scene + sky + rest = 1``.
@@ -62,8 +88,16 @@ def view_factor_outside_workflow(
     # Ensure we don't auto-enforce rows at matrix stage
     matrix_defaults = MatrixParams(**matrix_params.as_dict())
     matrix_defaults.enforce_reciprocity_rowsum = False
-    vf_scene = view_factor_matrix(meshes, params=matrix_defaults)
-    sky_vf = view_factor_to_tregenza_sky(meshes, params=sky_params)
+
+    if outside_workflow_shareable(matrix_defaults, sky_params):
+        vf_scene, sky_vf = view_factor_matrix_and_sky(
+            meshes,
+            matrix_params=matrix_defaults,
+            sky_params=sky_params,
+        )
+    else:
+        vf_scene = view_factor_matrix(meshes, params=matrix_defaults)
+        sky_vf = view_factor_to_tregenza_sky(meshes, params=sky_params)
 
     # Determine convergence tolerances
     tol_matrix = float(matrix_params.tol)
