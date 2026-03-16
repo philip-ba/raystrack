@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -48,6 +48,40 @@ class PreparedEmitter:
     @property
     def n_cells(self) -> int:
         return int(self.u_grid.shape[0])
+
+
+@dataclass(frozen=True)
+class PreparedDeviceScene:
+    v0: Any
+    e1: Any
+    e2: Any
+    normals: Any
+    sid: Any
+    bb_min: Optional[Any]
+    bb_max: Optional[Any]
+    left: Optional[Any]
+    right: Optional[Any]
+    start: Optional[Any]
+    count: Optional[Any]
+    use_bvh: bool
+
+
+@dataclass(frozen=True)
+class PreparedDeviceEmitter:
+    u_grid: Any
+    v_grid: Any
+    halton_tri: Any
+    halton_u: Any
+    halton_v: Any
+    halton_r1: Any
+    halton_r2: Any
+    cdf: Any
+    tri_a: Any
+    tri_e1: Any
+    tri_e2: Any
+    tri_u: Any
+    tri_v: Any
+    tri_n: Any
 
 
 def _safe_normalize(v: np.ndarray) -> np.ndarray:
@@ -223,4 +257,102 @@ def prepare_emitters(
     return emitters
 
 
-__all__ = ["PreparedScene", "PreparedEmitter", "prepare_scene", "prepare_emitters"]
+class PreparedSolver:
+    """Cache prepared geometry, ray-generation tables and CUDA uploads.
+
+    Reusing a single instance across repeated solves on the same mesh set
+    avoids rebuilding triangle buffers, BVHs, Halton tables and device copies.
+    """
+
+    def __init__(self, meshes: List[Tuple[str, np.ndarray, np.ndarray]]):
+        self.meshes = list(meshes)
+        self.total_faces = int(sum(F.shape[0] for _, _, F in self.meshes))
+        self._scene_cache: Dict[bool, PreparedScene] = {}
+        self._emitter_cache: Dict[Tuple[int, int, bool], List[PreparedEmitter]] = {}
+        self._device_scene_cache: Dict[Tuple[int, bool], PreparedDeviceScene] = {}
+        self._device_emitter_cache: Dict[Tuple[int, int, int, int, bool], PreparedDeviceEmitter] = {}
+
+    def get_scene(self, *, use_bvh: bool) -> PreparedScene:
+        key = bool(use_bvh)
+        scene = self._scene_cache.get(key)
+        if scene is None:
+            scene = prepare_scene(self.meshes, use_bvh=key)
+            self._scene_cache[key] = scene
+        return scene
+
+    def get_emitters(self, *, samples: int, rays: int, flip_faces: bool) -> List[PreparedEmitter]:
+        key = (int(samples), int(rays), bool(flip_faces))
+        emitters = self._emitter_cache.get(key)
+        if emitters is None:
+            emitters = prepare_emitters(self.meshes, samples=samples, rays=rays, flip_faces=flip_faces)
+            self._emitter_cache[key] = emitters
+        return emitters
+
+    def get_emitter(self, index: int, *, samples: int, rays: int, flip_faces: bool) -> PreparedEmitter:
+        return self.get_emitters(samples=samples, rays=rays, flip_faces=flip_faces)[int(index)]
+
+    def clear_device_cache(self) -> None:
+        self._device_scene_cache.clear()
+        self._device_emitter_cache.clear()
+
+    def get_device_scene(self, *, use_bvh: bool) -> PreparedDeviceScene:
+        from numba import cuda
+
+        key = (int(cuda.get_current_device().id), bool(use_bvh))
+        scene = self._device_scene_cache.get(key)
+        if scene is None:
+            host_scene = self.get_scene(use_bvh=use_bvh)
+            scene = PreparedDeviceScene(
+                v0=cuda.to_device(host_scene.v0),
+                e1=cuda.to_device(host_scene.e1),
+                e2=cuda.to_device(host_scene.e2),
+                normals=cuda.to_device(host_scene.normals),
+                sid=cuda.to_device(host_scene.sid),
+                bb_min=None if host_scene.bb_min is None else cuda.to_device(host_scene.bb_min),
+                bb_max=None if host_scene.bb_max is None else cuda.to_device(host_scene.bb_max),
+                left=None if host_scene.left is None else cuda.to_device(host_scene.left),
+                right=None if host_scene.right is None else cuda.to_device(host_scene.right),
+                start=None if host_scene.start is None else cuda.to_device(host_scene.start),
+                count=None if host_scene.count is None else cuda.to_device(host_scene.count),
+                use_bvh=host_scene.use_bvh,
+            )
+            self._device_scene_cache[key] = scene
+        return scene
+
+    def get_device_emitter(self, index: int, *, samples: int, rays: int, flip_faces: bool) -> PreparedDeviceEmitter:
+        from numba import cuda
+
+        idx = int(index)
+        key = (int(cuda.get_current_device().id), idx, int(samples), int(rays), bool(flip_faces))
+        emitter = self._device_emitter_cache.get(key)
+        if emitter is None:
+            host_emitter = self.get_emitter(idx, samples=samples, rays=rays, flip_faces=flip_faces)
+            emitter = PreparedDeviceEmitter(
+                u_grid=cuda.to_device(host_emitter.u_grid),
+                v_grid=cuda.to_device(host_emitter.v_grid),
+                halton_tri=cuda.to_device(host_emitter.halton_tri),
+                halton_u=cuda.to_device(host_emitter.halton_u),
+                halton_v=cuda.to_device(host_emitter.halton_v),
+                halton_r1=cuda.to_device(host_emitter.halton_r1),
+                halton_r2=cuda.to_device(host_emitter.halton_r2),
+                cdf=cuda.to_device(host_emitter.cdf),
+                tri_a=cuda.to_device(host_emitter.tri_a),
+                tri_e1=cuda.to_device(host_emitter.tri_e1),
+                tri_e2=cuda.to_device(host_emitter.tri_e2),
+                tri_u=cuda.to_device(host_emitter.tri_u),
+                tri_v=cuda.to_device(host_emitter.tri_v),
+                tri_n=cuda.to_device(host_emitter.tri_n),
+            )
+            self._device_emitter_cache[key] = emitter
+        return emitter
+
+
+__all__ = [
+    "PreparedScene",
+    "PreparedEmitter",
+    "PreparedDeviceScene",
+    "PreparedDeviceEmitter",
+    "PreparedSolver",
+    "prepare_scene",
+    "prepare_emitters",
+]

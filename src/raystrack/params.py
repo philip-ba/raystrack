@@ -33,6 +33,9 @@ class MatrixParams:
         - "stderr": stop when per-iteration replicate standard error is <= tol.
     min_iters : int
         Minimum number of Monte-Carlo iterations before a convergence check.
+    convergence_interval : int
+        Check convergence every N iterations. Values > 1 mainly help the CUDA
+        path by reducing host-side convergence work.
     reciprocity : bool
         Also compute inverse view factors via reciprocity.
     enforce_reciprocity_rowsum : bool
@@ -52,6 +55,7 @@ class MatrixParams:
     tol: float = 1e-4
     tol_mode: str = "stderr"
     min_iters: int = 5
+    convergence_interval: int = 1
     reciprocity: bool = True
     enforce_reciprocity_rowsum: bool = False
     flip_faces: bool = False
@@ -93,6 +97,9 @@ class SkyParams:
         - "stderr": stop when per-iteration replicate standard error is <= tol.
     min_iters : int
         Minimum number of Monte-Carlo iterations before a convergence check.
+    convergence_interval : int
+        Check convergence every N iterations. Values > 1 mainly help the CUDA
+        path by reducing host-side convergence work.
     discrete : bool
         If True, return 145 directional patches. If False, return a single
         merged "Sky" entry.
@@ -108,6 +115,7 @@ class SkyParams:
     tol: float = 1e-4
     tol_mode: str = "stderr"
     min_iters: int = 5
+    convergence_interval: int = 1
     discrete: bool = False
 
     def as_dict(self) -> Dict[str, Any]:

@@ -5,6 +5,7 @@ from .main import (
 )
 from .api import view_factor_outside_workflow
 from .params import MatrixParams, SkyParams
+from .utils.prepared import PreparedSolver
 from .io import (
     save_vf_matrix_json,
     load_vf_matrix_json,
@@ -20,6 +21,7 @@ __all__ = [
     "view_factor_outside_workflow",
     "MatrixParams",
     "SkyParams",
+    "PreparedSolver",
     "save_vf_matrix_json",
     "load_vf_matrix_json",
     "save_meshes_json",

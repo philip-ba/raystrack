@@ -782,6 +782,15 @@ def bin_tregenza_cpu(dirs, hitmask, counts):
             counts[pid] += 1
 
 
+@nb.njit(cache=True)
+def count_upward_misses_cpu(dirs, hitmask):
+    total = 0
+    for i in range(dirs.shape[0]):
+        if hitmask[i] == 0 and dirs[i, 2] > 0.0:
+            total += 1
+    return total
+
+
 __all__ = [
     "trace_cpu_firsthit",
     "trace_cpu_bvh_firsthit",
@@ -791,4 +800,5 @@ __all__ = [
     "trace_cpu_hitmask",
     "trace_cpu_bvh_hitmask",
     "bin_tregenza_cpu",
+    "count_upward_misses_cpu",
 ]

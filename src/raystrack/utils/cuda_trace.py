@@ -734,6 +734,28 @@ def kernel_bin_tregenza(dirs, any_hitmask, counts):
 
 
 @cuda.jit
+def kernel_count_upward_misses(dirs, any_hitmask, count):
+    shared_total = cuda.shared.array(1, nb.int32)
+    tid = cuda.threadIdx.x
+    idx = cuda.grid(1)
+    stride = cuda.gridsize(1)
+
+    if tid == 0:
+        shared_total[0] = 0
+    cuda.syncthreads()
+
+    i = idx
+    while i < dirs.shape[0]:
+        if any_hitmask[i] == 0 and dirs[i, 2] > 0.0:
+            cuda.atomic.add(shared_total, 0, 1)
+        i += stride
+    cuda.syncthreads()
+
+    if tid == 0 and shared_total[0] != 0:
+        cuda.atomic.add(count, 0, shared_total[0])
+
+
+@cuda.jit
 def kernel_trace_tregenza(orig, dirs, v0, e1, e2, sid, emit_sid, min_sid, counts):
     shared_counts = cuda.shared.array(TREGENZA_BINS, nb.int32)
     tid = cuda.threadIdx.x
@@ -802,6 +824,68 @@ def kernel_trace_tregenza(orig, dirs, v0, e1, e2, sid, emit_sid, min_sid, counts
         if val != 0:
             cuda.atomic.add(counts, i, val)
         i += block_size
+
+
+@cuda.jit
+def kernel_trace_count_upward(orig, dirs, v0, e1, e2, sid, emit_sid, min_sid, count):
+    shared_total = cuda.shared.array(1, nb.int32)
+    tid = cuda.threadIdx.x
+    idx = cuda.grid(1)
+    stride = cuda.gridsize(1)
+
+    if tid == 0:
+        shared_total[0] = 0
+    cuda.syncthreads()
+
+    i = idx
+    while i < orig.shape[0]:
+        o0 = orig[i, 0]
+        o1 = orig[i, 1]
+        o2 = orig[i, 2]
+        d0 = dirs[i, 0]
+        d1 = dirs[i, 1]
+        d2 = dirs[i, 2]
+
+        hit_any = 0
+        for tri in range(v0.shape[0]):
+            surf = sid[tri]
+            if _skip_surface(surf, emit_sid, min_sid):
+                continue
+
+            px = d1 * e2[tri, 2] - d2 * e2[tri, 1]
+            py = d2 * e2[tri, 0] - d0 * e2[tri, 2]
+            pz = d0 * e2[tri, 1] - d1 * e2[tri, 0]
+            det = e1[tri, 0] * px + e1[tri, 1] * py + e1[tri, 2] * pz
+            if abs(det) < 1e-7:
+                continue
+
+            inv_det = 1.0 / det
+            tx = o0 - v0[tri, 0]
+            ty = o1 - v0[tri, 1]
+            tz = o2 - v0[tri, 2]
+            u = (tx * px + ty * py + tz * pz) * inv_det
+            if u < 0.0 or u > 1.0:
+                continue
+
+            qx = ty * e1[tri, 2] - tz * e1[tri, 1]
+            qy = tz * e1[tri, 0] - tx * e1[tri, 2]
+            qz = tx * e1[tri, 1] - ty * e1[tri, 0]
+            v = (d0 * qx + d1 * qy + d2 * qz) * inv_det
+            if v < 0.0 or u + v > 1.0:
+                continue
+
+            tparam = (e2[tri, 0] * qx + e2[tri, 1] * qy + e2[tri, 2] * qz) * inv_det
+            if tparam > 1e-6:
+                hit_any = 1
+                break
+
+        if hit_any == 0 and d2 > 0.0:
+            cuda.atomic.add(shared_total, 0, 1)
+        i += stride
+    cuda.syncthreads()
+
+    if tid == 0 and shared_total[0] != 0:
+        cuda.atomic.add(count, 0, shared_total[0])
 
 
 @cuda.jit
@@ -974,6 +1058,167 @@ def kernel_trace_bvh_tregenza(
         i += block_size
 
 
+@cuda.jit
+def kernel_trace_bvh_count_upward(
+    orig,
+    dirs,
+    v0,
+    e1,
+    e2,
+    sid,
+    bb_min,
+    bb_max,
+    left,
+    right,
+    start,
+    cnt,
+    emit_sid,
+    min_sid,
+    count,
+):
+    shared_total = cuda.shared.array(1, nb.int32)
+    tid = cuda.threadIdx.x
+    idx = cuda.grid(1)
+    stride = cuda.gridsize(1)
+
+    if tid == 0:
+        shared_total[0] = 0
+    cuda.syncthreads()
+
+    i = idx
+    while i < orig.shape[0]:
+        o0 = orig[i, 0]
+        o1 = orig[i, 1]
+        o2 = orig[i, 2]
+        d0 = dirs[i, 0]
+        d1 = dirs[i, 1]
+        d2 = dirs[i, 2]
+
+        inv0 = 1.0 / d0 if abs(d0) > 1e-9 else 1e10
+        inv1 = 1.0 / d1 if abs(d1) > 1e-9 else 1e10
+        inv2 = 1.0 / d2 if abs(d2) > 1e-9 else 1e10
+
+        root_t = _aabb_tmin_dev(
+            o0,
+            o1,
+            o2,
+            inv0,
+            inv1,
+            inv2,
+            bb_min[0, 0],
+            bb_min[0, 1],
+            bb_min[0, 2],
+            bb_max[0, 0],
+            bb_max[0, 1],
+            bb_max[0, 2],
+        )
+
+        hit_any = 0
+        if root_t < INF:
+            stack = cuda.local.array(STACK_SIZE, nb.int32)
+            tstack = cuda.local.array(STACK_SIZE, nb.float32)
+            sp = 0
+            stack[sp] = 0
+            tstack[sp] = root_t
+            sp += 1
+
+            while sp > 0 and hit_any == 0:
+                sp -= 1
+                node = stack[sp]
+
+                if cnt[node] > 0:
+                    for t in range(cnt[node]):
+                        tri = start[node] + t
+                        surf = sid[tri]
+                        if _skip_surface(surf, emit_sid, min_sid):
+                            continue
+
+                        px = d1 * e2[tri, 2] - d2 * e2[tri, 1]
+                        py = d2 * e2[tri, 0] - d0 * e2[tri, 2]
+                        pz = d0 * e2[tri, 1] - d1 * e2[tri, 0]
+                        det = e1[tri, 0] * px + e1[tri, 1] * py + e1[tri, 2] * pz
+                        if abs(det) < 1e-7:
+                            continue
+
+                        inv_det = 1.0 / det
+                        tx = o0 - v0[tri, 0]
+                        ty = o1 - v0[tri, 1]
+                        tz = o2 - v0[tri, 2]
+                        u = (tx * px + ty * py + tz * pz) * inv_det
+                        if u < 0.0 or u > 1.0:
+                            continue
+
+                        qx = ty * e1[tri, 2] - tz * e1[tri, 1]
+                        qy = tz * e1[tri, 0] - tx * e1[tri, 2]
+                        qz = tx * e1[tri, 1] - ty * e1[tri, 0]
+                        v = (d0 * qx + d1 * qy + d2 * qz) * inv_det
+                        if v < 0.0 or u + v > 1.0:
+                            continue
+
+                        tparam = (e2[tri, 0] * qx + e2[tri, 1] * qy + e2[tri, 2] * qz) * inv_det
+                        if tparam > 1e-6:
+                            hit_any = 1
+                            break
+                else:
+                    ln = left[node]
+                    rn = right[node]
+                    tl = _aabb_tmin_dev(
+                        o0,
+                        o1,
+                        o2,
+                        inv0,
+                        inv1,
+                        inv2,
+                        bb_min[ln, 0],
+                        bb_min[ln, 1],
+                        bb_min[ln, 2],
+                        bb_max[ln, 0],
+                        bb_max[ln, 1],
+                        bb_max[ln, 2],
+                    )
+                    tr = _aabb_tmin_dev(
+                        o0,
+                        o1,
+                        o2,
+                        inv0,
+                        inv1,
+                        inv2,
+                        bb_min[rn, 0],
+                        bb_min[rn, 1],
+                        bb_min[rn, 2],
+                        bb_max[rn, 0],
+                        bb_max[rn, 1],
+                        bb_max[rn, 2],
+                    )
+
+                    if tl < tr:
+                        if tr < INF and sp < STACK_SIZE:
+                            stack[sp] = rn
+                            tstack[sp] = tr
+                            sp += 1
+                        if tl < INF and sp < STACK_SIZE:
+                            stack[sp] = ln
+                            tstack[sp] = tl
+                            sp += 1
+                    else:
+                        if tl < INF and sp < STACK_SIZE:
+                            stack[sp] = ln
+                            tstack[sp] = tl
+                            sp += 1
+                        if tr < INF and sp < STACK_SIZE:
+                            stack[sp] = rn
+                            tstack[sp] = tr
+                            sp += 1
+
+        if hit_any == 0 and d2 > 0.0:
+            cuda.atomic.add(shared_total, 0, 1)
+        i += stride
+    cuda.syncthreads()
+
+    if tid == 0 and shared_total[0] != 0:
+        cuda.atomic.add(count, 0, shared_total[0])
+
+
 __all__ = [
     "kernel_trace_firsthit",
     "kernel_trace_bvh_firsthit",
@@ -984,6 +1229,9 @@ __all__ = [
     "kernel_zero_i32",
     "kernel_build_rays",
     "kernel_bin_tregenza",
+    "kernel_count_upward_misses",
     "kernel_trace_tregenza",
     "kernel_trace_bvh_tregenza",
+    "kernel_trace_count_upward",
+    "kernel_trace_bvh_count_upward",
 ]

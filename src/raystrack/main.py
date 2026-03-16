@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover
 from .params import MatrixParams, SkyParams
 from .utils.cpu_trace import (
     bin_tregenza_cpu,
+    count_upward_misses_cpu,
     reduce_first_hits,
     trace_cpu_bvh_combined,
     trace_cpu_bvh_firsthit,
@@ -30,18 +31,21 @@ from .utils.cpu_trace import (
 from .utils.cuda_trace import (
     kernel_bin_tregenza,
     kernel_build_rays,
+    kernel_count_upward_misses,
     kernel_reduce_hits,
     kernel_trace_bvh_combined,
+    kernel_trace_bvh_count_upward,
     kernel_trace_bvh_firsthit,
     kernel_trace_bvh_tregenza,
     kernel_trace_combined,
+    kernel_trace_count_upward,
     kernel_trace_firsthit,
     kernel_trace_tregenza,
     kernel_zero_i32,
     kernel_zero_i64,
 )
 from .utils.helpers import enforce_reciprocity_and_rowsum as _enforce_reciprocity_and_rowsum
-from .utils.prepared import PreparedEmitter, prepare_emitters, prepare_scene
+from .utils.prepared import PreparedEmitter, PreparedSolver
 from .utils.ray_builder import build_rays
 
 _LOG_PROC = None
@@ -126,28 +130,48 @@ def _select_bvh(bvh: str | None, total_faces: int) -> bool:
     return total_faces >= _BVH_AUTO_THRESHOLD
 
 
+def _resolve_device(device: str | None) -> bool:
+    have_cuda = cuda.is_available()
+    dev = (device or "auto").lower()
+    if dev not in ("auto", "gpu", "cpu"):
+        raise ValueError(f"device must be 'auto', 'gpu', or 'cpu' (got {device!r})")
+    if dev == "auto":
+        return have_cuda
+    if dev == "gpu":
+        if not have_cuda:
+            raise RuntimeError("device='gpu' requested but CUDA is not available")
+        return True
+    return False
+
+
+def _ensure_prepared(
+    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
+    prepared: PreparedSolver | None,
+) -> PreparedSolver:
+    if prepared is None:
+        return PreparedSolver(meshes)
+    if not isinstance(prepared, PreparedSolver):
+        raise TypeError("prepared must be a PreparedSolver instance")
+    return prepared
+
+
+def _convergence_checkpoint(iters_done: int, *, min_iters: int, interval: int, max_iters: int, needs_variance: bool = False) -> bool:
+    if iters_done < max(1, int(min_iters)):
+        return False
+    if needs_variance and iters_done <= 1:
+        return False
+    if iters_done >= int(max_iters):
+        return True
+    span = max(1, int(interval))
+    if span <= 1:
+        return True
+    start = max(1, int(min_iters))
+    return ((iters_done - start) % span) == 0
+
+
 def _host_ray_buffers(n_rays: int) -> Tuple[np.ndarray, np.ndarray]:
     orig = np.empty((n_rays, 3), dtype=np.float32)
     return orig, np.empty_like(orig)
-
-
-def _upload_emitter_data(emitter: PreparedEmitter):
-    return {
-        "u_grid": cuda.to_device(emitter.u_grid),
-        "v_grid": cuda.to_device(emitter.v_grid),
-        "halton_tri": cuda.to_device(emitter.halton_tri),
-        "halton_u": cuda.to_device(emitter.halton_u),
-        "halton_v": cuda.to_device(emitter.halton_v),
-        "halton_r1": cuda.to_device(emitter.halton_r1),
-        "halton_r2": cuda.to_device(emitter.halton_r2),
-        "cdf": cuda.to_device(emitter.cdf),
-        "tri_a": cuda.to_device(emitter.tri_a),
-        "tri_e1": cuda.to_device(emitter.tri_e1),
-        "tri_e2": cuda.to_device(emitter.tri_e2),
-        "tri_u": cuda.to_device(emitter.tri_u),
-        "tri_v": cuda.to_device(emitter.tri_v),
-        "tri_n": cuda.to_device(emitter.tri_n),
-    }
 
 
 def _build_rays_host(emitter: PreparedEmitter, rays: int, orig, dire, cp_grid, cp_dims) -> None:
@@ -207,6 +231,7 @@ def view_factor_matrix_and_sky(
     *,
     matrix_params: MatrixParams,
     sky_params: SkyParams,
+    prepared: PreparedSolver | None = None,
 ) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, float]]]:
     """Compute scene view factors and sky VF from a shared set of rays.
 
@@ -227,6 +252,9 @@ def view_factor_matrix_and_sky(
     equivalent to calling :func:`view_factor_matrix` and
     :func:`view_factor_to_tregenza_sky` separately with the same shared
     sampling configuration, but without doubling the ray tracing work.
+
+    When ``prepared`` is provided, the solver reuses cached prepared geometry,
+    BVHs, ray tables and CUDA uploads across repeated calls on the same scene.
     """
     if not isinstance(matrix_params, MatrixParams):
         raise TypeError("matrix_params must be a MatrixParams instance")
@@ -245,23 +273,14 @@ def view_factor_matrix_and_sky(
     gpu_raygen = mp["gpu_raygen"]
     reciprocity = mp["reciprocity"]
     sky_discrete = sp["discrete"]
+    matrix_interval = max(1, int(mp["convergence_interval"]))
+    sky_interval = max(1, int(sp["convergence_interval"]))
 
-    have_cuda = cuda.is_available()
-    dev = (device or "auto").lower()
-    if dev not in ("auto", "gpu", "cpu"):
-        raise ValueError(f"device must be 'auto', 'gpu', or 'cpu' (got {device!r})")
-    if dev == "auto":
-        use_gpu = have_cuda
-    elif dev == "gpu":
-        if not have_cuda:
-            raise RuntimeError("device='gpu' requested but CUDA is not available")
-        use_gpu = True
-    else:
-        use_gpu = False
-
-    use_bvh = _select_bvh(mp["bvh"], int(sum(F.shape[0] for _, _, F in meshes)))
-    emitters = prepare_emitters(meshes, samples=samples, rays=rays, flip_faces=False)
-    scene = prepare_scene(meshes, use_bvh=use_bvh)
+    use_gpu = _resolve_device(device)
+    prepared_solver = _ensure_prepared(meshes, prepared)
+    use_bvh = _select_bvh(mp["bvh"], prepared_solver.total_faces)
+    emitters = prepared_solver.get_emitters(samples=samples, rays=rays, flip_faces=False)
+    scene = prepared_solver.get_scene(use_bvh=use_bvh)
     areas = [emitter.total_area for emitter in emitters] if reciprocity else None
 
     vf_scene: Dict[str, Dict[str, float]] = {name: {} for name, _, _ in meshes}
@@ -273,20 +292,7 @@ def view_factor_matrix_and_sky(
 
     d_scene = None
     if use_gpu:
-        d_scene = {
-            "v0": cuda.to_device(scene.v0),
-            "e1": cuda.to_device(scene.e1),
-            "e2": cuda.to_device(scene.e2),
-            "normals": cuda.to_device(scene.normals),
-            "sid": cuda.to_device(scene.sid),
-        }
-        if scene.use_bvh:
-            d_scene["bb_min"] = cuda.to_device(scene.bb_min)
-            d_scene["bb_max"] = cuda.to_device(scene.bb_max)
-            d_scene["left"] = cuda.to_device(scene.left)
-            d_scene["right"] = cuda.to_device(scene.right)
-            d_scene["start"] = cuda.to_device(scene.start)
-            d_scene["count"] = cuda.to_device(scene.count)
+        d_scene = prepared_solver.get_device_scene(use_bvh=use_bvh)
 
     n_surf = len(meshes)
     for idx_emit, (name_e, _, _) in enumerate(meshes):
@@ -312,9 +318,10 @@ def view_factor_matrix_and_sky(
         matrix_total_rays = 0
         matrix_iters_done = 0
 
-        counts_total = np.zeros(145, np.int64)
-        mean_bins = np.zeros(145, np.float64)
-        M2_bins = np.zeros(145, np.float64)
+        counts_total = np.zeros(145, np.int64) if sky_discrete else None
+        mean_bins = np.zeros(145, np.float64) if sky_discrete else None
+        M2_bins = np.zeros(145, np.float64) if sky_discrete else None
+        upward_total = 0
         mean_sky = 0.0
         M2_sky = 0.0
         prev_frac = None
@@ -326,7 +333,7 @@ def view_factor_matrix_and_sky(
         max_trace_iters = max(int(mp["max_iters"]), int(sp["max_iters"]))
 
         if use_gpu:
-            emitter_dev = _upload_emitter_data(emitter)
+            emitter_dev = prepared_solver.get_device_emitter(idx_emit, samples=samples, rays=rays, flip_faces=False)
             d_orig = cuda.device_array((n_rays_once, 3), dtype=np.float32)
             d_dirs = cuda.device_array((n_rays_once, 3), dtype=np.float32)
             d_hit_sid = cuda.device_array(n_rays_once, dtype=np.int32)
@@ -334,22 +341,24 @@ def view_factor_matrix_and_sky(
             d_any_hit = cuda.device_array(n_rays_once, dtype=np.uint8)
             d_hf = cuda.device_array(n_surf, dtype=np.int64)
             d_hb = cuda.device_array(n_surf, dtype=np.int64)
-            d_counts = cuda.device_array(145, dtype=np.int32)
+            d_counts = cuda.device_array(145, dtype=np.int32) if sky_discrete else None
+            d_upward = cuda.device_array(1, dtype=np.int32) if not sky_discrete else None
             stream = cuda.stream() if cuda_async else None
             if cuda_async:
                 h_hf = cuda.pinned_array(n_surf, dtype=np.int64)
                 h_hb = cuda.pinned_array(n_surf, dtype=np.int64)
-                h_counts = cuda.pinned_array(145, dtype=np.int32)
+                h_counts = cuda.pinned_array(145, dtype=np.int32) if sky_discrete else None
+                h_upward = cuda.pinned_array(1, dtype=np.int32) if not sky_discrete else None
                 if not gpu_raygen:
                     h_orig = cuda.pinned_array((n_rays_once, 3), dtype=np.float32)
                     h_dirs = cuda.pinned_array((n_rays_once, 3), dtype=np.float32)
             else:
-                h_hf = h_hb = h_counts = None
+                h_hf = h_hb = h_counts = h_upward = None
                 if not gpu_raygen:
                     h_orig, h_dirs = _host_ray_buffers(n_rays_once)
             blocks, threads = _compute_cuda_launch(n_rays_once, None)
             surf_blocks, surf_threads = _compute_cuda_launch(n_surf, threads)
-            count_blocks, count_threads = _compute_cuda_launch(145, threads)
+            sky_blocks, sky_threads = _compute_cuda_launch(145 if sky_discrete else 1, threads)
         else:
             orig, dire = _host_ray_buffers(n_rays_once)
             hit_sid_iter = np.empty(n_rays_once, dtype=np.int32)
@@ -357,7 +366,8 @@ def view_factor_matrix_and_sky(
             any_hit_iter = np.empty(n_rays_once, dtype=np.uint8)
             hits_f_iter = np.empty(n_surf, dtype=np.int64)
             hits_b_iter = np.empty(n_surf, dtype=np.int64)
-            counts_iter = np.empty(145, dtype=np.int64)
+            hitmask_iter = np.empty(n_rays_once, dtype=np.uint8)
+            counts_iter = np.empty(145, dtype=np.int64) if sky_discrete else None
 
         for itr in range(max_trace_iters):
             if matrix_done and sky_done:
@@ -371,11 +381,11 @@ def view_factor_matrix_and_sky(
                 if gpu_raygen:
                     launch = kernel_build_rays[blocks, threads, stream] if cuda_async else kernel_build_rays[blocks, threads]
                     launch(
-                        emitter_dev["u_grid"], emitter_dev["v_grid"],
-                        emitter_dev["halton_tri"], emitter_dev["halton_u"], emitter_dev["halton_v"],
-                        emitter_dev["halton_r1"], emitter_dev["halton_r2"], emitter_dev["cdf"],
-                        emitter_dev["tri_a"], emitter_dev["tri_e1"], emitter_dev["tri_e2"],
-                        emitter_dev["tri_u"], emitter_dev["tri_v"], emitter_dev["tri_n"],
+                        emitter_dev.u_grid, emitter_dev.v_grid,
+                        emitter_dev.halton_tri, emitter_dev.halton_u, emitter_dev.halton_v,
+                        emitter_dev.halton_r1, emitter_dev.halton_r2, emitter_dev.cdf,
+                        emitter_dev.tri_a, emitter_dev.tri_e1, emitter_dev.tri_e2,
+                        emitter_dev.tri_u, emitter_dev.tri_v, emitter_dev.tri_n,
                         rays, d_orig, d_dirs, cp_grid, cp_dims,
                     )
                 else:
@@ -387,70 +397,174 @@ def view_factor_matrix_and_sky(
                         d_orig.copy_to_device(h_orig)
                         d_dirs.copy_to_device(h_dirs)
 
-                if scene.use_bvh:
-                    trace = kernel_trace_bvh_combined[blocks, threads, stream] if cuda_async else kernel_trace_bvh_combined[blocks, threads]
-                    trace(
-                        d_orig, d_dirs, d_scene["v0"], d_scene["e1"], d_scene["e2"], d_scene["normals"], d_scene["sid"],
-                        d_scene["bb_min"], d_scene["bb_max"], d_scene["left"], d_scene["right"], d_scene["start"], d_scene["count"],
-                        emit_sid, matrix_min_sid, d_hit_sid, d_hit_front, d_any_hit,
-                    )
-                else:
-                    trace = kernel_trace_combined[blocks, threads, stream] if cuda_async else kernel_trace_combined[blocks, threads]
-                    trace(
-                        d_orig, d_dirs, d_scene["v0"], d_scene["e1"], d_scene["e2"], d_scene["normals"], d_scene["sid"],
-                        emit_sid, matrix_min_sid, d_hit_sid, d_hit_front, d_any_hit,
-                    )
+                if not matrix_done and not sky_done:
+                    if scene.use_bvh:
+                        trace = kernel_trace_bvh_combined[blocks, threads, stream] if cuda_async else kernel_trace_bvh_combined[blocks, threads]
+                        trace(
+                            d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.normals, d_scene.sid,
+                            d_scene.bb_min, d_scene.bb_max, d_scene.left, d_scene.right, d_scene.start, d_scene.count,
+                            emit_sid, matrix_min_sid, d_hit_sid, d_hit_front, d_any_hit,
+                        )
+                    else:
+                        trace = kernel_trace_combined[blocks, threads, stream] if cuda_async else kernel_trace_combined[blocks, threads]
+                        trace(
+                            d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.normals, d_scene.sid,
+                            emit_sid, matrix_min_sid, d_hit_sid, d_hit_front, d_any_hit,
+                        )
 
-                if not matrix_done:
                     zero_hits = kernel_zero_i64[surf_blocks, surf_threads, stream] if cuda_async else kernel_zero_i64[surf_blocks, surf_threads]
                     zero_hits(d_hf)
                     zero_hits(d_hb)
                     reduce_kernel = kernel_reduce_hits[blocks, threads, stream] if cuda_async else kernel_reduce_hits[blocks, threads]
                     reduce_kernel(d_hit_sid, d_hit_front, d_hf, d_hb, n_surf)
 
-                if not sky_done:
-                    zero_counts = kernel_zero_i32[count_blocks, count_threads, stream] if cuda_async else kernel_zero_i32[count_blocks, count_threads]
-                    zero_counts(d_counts)
-                    bin_kernel = kernel_bin_tregenza[blocks, threads, stream] if cuda_async else kernel_bin_tregenza[blocks, threads]
-                    bin_kernel(d_dirs, d_any_hit, d_counts)
+                    if sky_discrete:
+                        zero_sky = kernel_zero_i32[sky_blocks, sky_threads, stream] if cuda_async else kernel_zero_i32[sky_blocks, sky_threads]
+                        zero_sky(d_counts)
+                        sky_kernel = kernel_bin_tregenza[blocks, threads, stream] if cuda_async else kernel_bin_tregenza[blocks, threads]
+                        sky_kernel(d_dirs, d_any_hit, d_counts)
+                    else:
+                        zero_sky = kernel_zero_i32[sky_blocks, sky_threads, stream] if cuda_async else kernel_zero_i32[sky_blocks, sky_threads]
+                        zero_sky(d_upward)
+                        sky_kernel = kernel_count_upward_misses[blocks, threads, stream] if cuda_async else kernel_count_upward_misses[blocks, threads]
+                        sky_kernel(d_dirs, d_any_hit, d_upward)
 
-                if cuda_async:
-                    if not matrix_done:
+                    if cuda_async:
                         d_hf.copy_to_host(h_hf, stream=stream)
                         d_hb.copy_to_host(h_hb, stream=stream)
-                    if not sky_done:
-                        d_counts.copy_to_host(h_counts, stream=stream)
-                    stream.synchronize()
-                    if not matrix_done:
+                        if sky_discrete:
+                            d_counts.copy_to_host(h_counts, stream=stream)
+                        else:
+                            d_upward.copy_to_host(h_upward, stream=stream)
+                        stream.synchronize()
                         hits_f_iter = np.asarray(h_hf)
                         hits_b_iter = np.asarray(h_hb)
-                    if not sky_done:
-                        counts_iter_arr = np.asarray(h_counts, dtype=np.int64)
-                else:
-                    cuda.synchronize()
-                    if not matrix_done:
+                        if sky_discrete:
+                            counts_iter_arr = np.asarray(h_counts, dtype=np.int64)
+                        else:
+                            upward_iter = int(h_upward[0])
+                    else:
+                        cuda.synchronize()
                         hits_f_iter = d_hf.copy_to_host()
                         hits_b_iter = d_hb.copy_to_host()
-                    if not sky_done:
-                        counts_iter_arr = d_counts.copy_to_host().astype(np.int64)
+                        if sky_discrete:
+                            counts_iter_arr = d_counts.copy_to_host().astype(np.int64)
+                        else:
+                            upward_iter = int(d_upward.copy_to_host()[0])
+                elif not matrix_done:
+                    zero_hits = kernel_zero_i64[surf_blocks, surf_threads, stream] if cuda_async else kernel_zero_i64[surf_blocks, surf_threads]
+                    zero_hits(d_hf)
+                    zero_hits(d_hb)
+                    if scene.use_bvh:
+                        trace = kernel_trace_bvh_firsthit[blocks, threads, stream] if cuda_async else kernel_trace_bvh_firsthit[blocks, threads]
+                        trace(
+                            d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.normals, d_scene.sid,
+                            d_scene.bb_min, d_scene.bb_max, d_scene.left, d_scene.right, d_scene.start, d_scene.count,
+                            emit_sid, matrix_min_sid, d_hit_sid, d_hit_front,
+                        )
+                    else:
+                        trace = kernel_trace_firsthit[blocks, threads, stream] if cuda_async else kernel_trace_firsthit[blocks, threads]
+                        trace(d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.normals, d_scene.sid, emit_sid, matrix_min_sid, d_hit_sid, d_hit_front)
+                    reduce_kernel = kernel_reduce_hits[blocks, threads, stream] if cuda_async else kernel_reduce_hits[blocks, threads]
+                    reduce_kernel(d_hit_sid, d_hit_front, d_hf, d_hb, n_surf)
+
+                    if cuda_async:
+                        d_hf.copy_to_host(h_hf, stream=stream)
+                        d_hb.copy_to_host(h_hb, stream=stream)
+                        stream.synchronize()
+                        hits_f_iter = np.asarray(h_hf)
+                        hits_b_iter = np.asarray(h_hb)
+                    else:
+                        cuda.synchronize()
+                        hits_f_iter = d_hf.copy_to_host()
+                        hits_b_iter = d_hb.copy_to_host()
+                else:
+                    zero_sky = kernel_zero_i32[sky_blocks, sky_threads, stream] if cuda_async else kernel_zero_i32[sky_blocks, sky_threads]
+                    if sky_discrete:
+                        zero_sky(d_counts)
+                        if scene.use_bvh:
+                            trace = kernel_trace_bvh_tregenza[blocks, threads, stream] if cuda_async else kernel_trace_bvh_tregenza[blocks, threads]
+                            trace(
+                                d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.sid,
+                                d_scene.bb_min, d_scene.bb_max, d_scene.left, d_scene.right, d_scene.start, d_scene.count,
+                                idx_emit, 0, d_counts,
+                            )
+                        else:
+                            trace = kernel_trace_tregenza[blocks, threads, stream] if cuda_async else kernel_trace_tregenza[blocks, threads]
+                            trace(d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.sid, idx_emit, 0, d_counts)
+                    else:
+                        zero_sky(d_upward)
+                        if scene.use_bvh:
+                            trace = kernel_trace_bvh_count_upward[blocks, threads, stream] if cuda_async else kernel_trace_bvh_count_upward[blocks, threads]
+                            trace(
+                                d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.sid,
+                                d_scene.bb_min, d_scene.bb_max, d_scene.left, d_scene.right, d_scene.start, d_scene.count,
+                                idx_emit, 0, d_upward,
+                            )
+                        else:
+                            trace = kernel_trace_count_upward[blocks, threads, stream] if cuda_async else kernel_trace_count_upward[blocks, threads]
+                            trace(d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.sid, idx_emit, 0, d_upward)
+
+                    if cuda_async:
+                        if sky_discrete:
+                            d_counts.copy_to_host(h_counts, stream=stream)
+                        else:
+                            d_upward.copy_to_host(h_upward, stream=stream)
+                        stream.synchronize()
+                        if sky_discrete:
+                            counts_iter_arr = np.asarray(h_counts, dtype=np.int64)
+                        else:
+                            upward_iter = int(h_upward[0])
+                    else:
+                        cuda.synchronize()
+                        if sky_discrete:
+                            counts_iter_arr = d_counts.copy_to_host().astype(np.int64)
+                        else:
+                            upward_iter = int(d_upward.copy_to_host()[0])
             else:
                 _build_rays_host(emitter, rays, orig, dire, cp_grid, cp_dims)
-                if scene.use_bvh:
-                    trace_cpu_bvh_combined(
-                        orig, dire, scene.v0, scene.e1, scene.e2, scene.normals, scene.sid,
-                        scene.bb_min, scene.bb_max, scene.left, scene.right, scene.start, scene.count,
-                        emit_sid, matrix_min_sid, hit_sid_iter, front_iter, any_hit_iter,
-                    )
-                else:
-                    trace_cpu_combined(
-                        orig, dire, scene.v0, scene.e1, scene.e2, scene.normals, scene.sid,
-                        emit_sid, matrix_min_sid, hit_sid_iter, front_iter, any_hit_iter,
-                    )
-                if not matrix_done:
+                if not matrix_done and not sky_done:
+                    if scene.use_bvh:
+                        trace_cpu_bvh_combined(
+                            orig, dire, scene.v0, scene.e1, scene.e2, scene.normals, scene.sid,
+                            scene.bb_min, scene.bb_max, scene.left, scene.right, scene.start, scene.count,
+                            emit_sid, matrix_min_sid, hit_sid_iter, front_iter, any_hit_iter,
+                        )
+                    else:
+                        trace_cpu_combined(
+                            orig, dire, scene.v0, scene.e1, scene.e2, scene.normals, scene.sid,
+                            emit_sid, matrix_min_sid, hit_sid_iter, front_iter, any_hit_iter,
+                        )
                     reduce_first_hits(hit_sid_iter, front_iter, hits_f_iter, hits_b_iter)
-                if not sky_done:
-                    bin_tregenza_cpu(dire, any_hit_iter, counts_iter)
-                    counts_iter_arr = counts_iter
+                    if sky_discrete:
+                        bin_tregenza_cpu(dire, any_hit_iter, counts_iter)
+                        counts_iter_arr = counts_iter
+                    else:
+                        upward_iter = int(count_upward_misses_cpu(dire, any_hit_iter))
+                elif not matrix_done:
+                    if scene.use_bvh:
+                        trace_cpu_bvh_firsthit(
+                            orig, dire, scene.v0, scene.e1, scene.e2, scene.normals, scene.sid,
+                            scene.bb_min, scene.bb_max, scene.left, scene.right, scene.start, scene.count,
+                            emit_sid, matrix_min_sid, hit_sid_iter, front_iter,
+                        )
+                    else:
+                        trace_cpu_firsthit(orig, dire, scene.v0, scene.e1, scene.e2, scene.normals, scene.sid, emit_sid, matrix_min_sid, hit_sid_iter, front_iter)
+                    reduce_first_hits(hit_sid_iter, front_iter, hits_f_iter, hits_b_iter)
+                else:
+                    if scene.use_bvh:
+                        trace_cpu_bvh_hitmask(
+                            orig, dire, scene.v0, scene.e1, scene.e2, scene.sid,
+                            scene.bb_min, scene.bb_max, scene.left, scene.right, scene.start, scene.count,
+                            idx_emit, 0, hitmask_iter,
+                        )
+                    else:
+                        trace_cpu_hitmask(orig, dire, scene.v0, scene.e1, scene.e2, scene.sid, idx_emit, 0, hitmask_iter)
+                    if sky_discrete:
+                        bin_tregenza_cpu(dire, hitmask_iter, counts_iter)
+                        counts_iter_arr = counts_iter
+                    else:
+                        upward_iter = int(count_upward_misses_cpu(dire, hitmask_iter))
 
             trace_iters += 1
             total_traced_rays += n_rays_once
@@ -470,16 +584,24 @@ def view_factor_matrix_and_sky(
                 mean_b += delta_b / matrix_iters_done
                 M2_b += delta_b * (b_iter - mean_b)
 
+                check_matrix = _convergence_checkpoint(
+                    matrix_iters_done,
+                    min_iters=int(mp["min_iters"]),
+                    interval=matrix_interval if use_gpu else 1,
+                    max_iters=int(mp["max_iters"]),
+                    needs_variance=(mp["tol_mode"] == "stderr"),
+                )
                 if mp["tol_mode"] == "delta":
                     curr_f = hits_f / float(matrix_total_rays)
                     curr_b = hits_b / float(matrix_total_rays)
-                    if prev_f is not None and matrix_iters_done >= max(1, int(mp["min_iters"])):
+                    if check_matrix and prev_f is not None:
                         if np.all(np.abs(curr_f - prev_f) < float(mp["tol"])) and np.all(np.abs(curr_b - prev_b) < float(mp["tol"])):
                             matrix_done = True
-                    prev_f = curr_f.copy()
-                    prev_b = curr_b.copy()
+                    if check_matrix:
+                        prev_f = curr_f.copy()
+                        prev_b = curr_b.copy()
                 elif mp["tol_mode"] == "stderr":
-                    if matrix_iters_done >= max(1, int(mp["min_iters"])) and matrix_iters_done > 1:
+                    if check_matrix:
                         se_f = np.sqrt(np.maximum(M2_f / (matrix_iters_done - 1), 0.0) / matrix_iters_done)
                         se_b = np.sqrt(np.maximum(M2_b / (matrix_iters_done - 1), 0.0) / matrix_iters_done)
                         if np.all(se_f[recv_idx] <= float(mp["tol"])) and np.all(se_b[recv_idx] <= float(mp["tol"])):
@@ -490,36 +612,60 @@ def view_factor_matrix_and_sky(
                     matrix_done = True
 
             if not sky_done:
-                counts_total += counts_iter_arr
                 sky_total_rays += n_rays_once
                 sky_iters_done += 1
-                frac_iter = counts_iter_arr.astype(np.float64) / float(n_rays_once)
-                sky_iter = float(frac_iter.sum())
-                delta = frac_iter - mean_bins
-                mean_bins += delta / sky_iters_done
-                M2_bins += delta * (frac_iter - mean_bins)
-                delta_sky = sky_iter - mean_sky
-                mean_sky += delta_sky / sky_iters_done
-                M2_sky += delta_sky * (sky_iter - mean_sky)
+                check_sky = _convergence_checkpoint(
+                    sky_iters_done,
+                    min_iters=int(sp["min_iters"]),
+                    interval=sky_interval if use_gpu else 1,
+                    max_iters=int(sp["max_iters"]),
+                    needs_variance=(sp["tol_mode"] == "stderr"),
+                )
 
-                if sp["tol_mode"] == "delta":
-                    if sky_iters_done >= max(1, int(sp["min_iters"])):
-                        curr = counts_total.astype(np.float64) / float(sky_total_rays)
-                        if prev_frac is not None and np.all(np.abs(curr - prev_frac) < float(sp["tol"])):
-                            sky_done = True
-                        prev_frac = curr.copy()
-                elif sp["tol_mode"] == "stderr":
-                    if sky_iters_done >= max(1, int(sp["min_iters"])) and sky_iters_done > 1:
-                        se_bins = np.sqrt(np.maximum(M2_bins / (sky_iters_done - 1), 0.0) / sky_iters_done)
-                        if sky_discrete:
+                if sky_discrete:
+                    counts_total += counts_iter_arr
+                    frac_iter = counts_iter_arr.astype(np.float64) / float(n_rays_once)
+                    sky_iter = float(frac_iter.sum())
+                    delta = frac_iter - mean_bins
+                    mean_bins += delta / sky_iters_done
+                    M2_bins += delta * (frac_iter - mean_bins)
+                    delta_sky = sky_iter - mean_sky
+                    mean_sky += delta_sky / sky_iters_done
+                    M2_sky += delta_sky * (sky_iter - mean_sky)
+
+                    if sp["tol_mode"] == "delta":
+                        if check_sky:
+                            curr = counts_total.astype(np.float64) / float(sky_total_rays)
+                            if prev_frac is not None and np.all(np.abs(curr - prev_frac) < float(sp["tol"])):
+                                sky_done = True
+                            prev_frac = curr.copy()
+                    elif sp["tol_mode"] == "stderr":
+                        if check_sky:
+                            se_bins = np.sqrt(np.maximum(M2_bins / (sky_iters_done - 1), 0.0) / sky_iters_done)
                             if np.all(se_bins <= float(sp["tol"])):
                                 sky_done = True
-                        else:
+                    else:
+                        raise ValueError(f"Unknown tol_mode: {sp['tol_mode']}")
+                else:
+                    upward_total += upward_iter
+                    frac_iter = upward_iter / float(n_rays_once)
+                    delta_sky = frac_iter - mean_sky
+                    mean_sky += delta_sky / sky_iters_done
+                    M2_sky += delta_sky * (frac_iter - mean_sky)
+
+                    if sp["tol_mode"] == "delta":
+                        if check_sky:
+                            curr = upward_total / float(sky_total_rays)
+                            if prev_frac is not None and abs(curr - prev_frac) < float(sp["tol"]):
+                                sky_done = True
+                            prev_frac = curr
+                    elif sp["tol_mode"] == "stderr":
+                        if check_sky:
                             se_sky = max(M2_sky / (sky_iters_done - 1), 0.0) ** 0.5 / sky_iters_done**0.5
                             if se_sky <= float(sp["tol"]):
                                 sky_done = True
-                else:
-                    raise ValueError(f"Unknown tol_mode: {sp['tol_mode']}")
+                    else:
+                        raise ValueError(f"Unknown tol_mode: {sp['tol_mode']}")
                 if sky_iters_done >= int(sp["max_iters"]):
                     sky_done = True
 
@@ -544,11 +690,11 @@ def view_factor_matrix_and_sky(
         vf_scene[name_e].update(row)
 
         if sky_total_rays > 0:
-            frac = counts_total.astype(np.float64) / float(sky_total_rays)
             if sky_discrete:
+                frac = counts_total.astype(np.float64) / float(sky_total_rays)
                 sky_vf[name_e].update({f"Sky_Patch_{i+1}": float(frac[i]) for i in range(145)})
             else:
-                sky_vf[name_e]["Sky"] = float(frac.sum())
+                sky_vf[name_e]["Sky"] = float(upward_total / float(sky_total_rays))
 
         msg = (
             f"({idx_emit+1}/{len(meshes)}) [{name_e}] traced {trace_iters} iter, {total_traced_rays:,} rays -> "
@@ -561,7 +707,12 @@ def view_factor_matrix_and_sky(
     return vf_scene, sky_vf
 
 
-def view_factor_matrix(meshes: List[Tuple[str, np.ndarray, np.ndarray]], params: MatrixParams):
+def view_factor_matrix(
+    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
+    params: MatrixParams,
+    *,
+    prepared: PreparedSolver | None = None,
+):
     if not isinstance(params, MatrixParams):
         raise TypeError("params must be a MatrixParams instance")
 
@@ -576,47 +727,24 @@ def view_factor_matrix(meshes: List[Tuple[str, np.ndarray, np.ndarray]], params:
     tol = p["tol"]
     tol_mode = p["tol_mode"]
     min_iters = p["min_iters"]
+    convergence_interval = max(1, int(p["convergence_interval"]))
     reciprocity = p["reciprocity"]
     enforce_reciprocity_rowsum = p["enforce_reciprocity_rowsum"]
     flip_faces = p["flip_faces"]
     return_stats = False
 
-    have_cuda = cuda.is_available()
-    dev = (device or "auto").lower()
-    if dev not in ("auto", "gpu", "cpu"):
-        raise ValueError(f"device must be 'auto', 'gpu', or 'cpu' (got {device!r})")
-    if dev == "auto":
-        use_gpu = have_cuda
-    elif dev == "gpu":
-        if not have_cuda:
-            raise RuntimeError("device='gpu' requested but CUDA is not available")
-        use_gpu = True
-    else:
-        use_gpu = False
-
-    use_bvh = _select_bvh(p["bvh"], int(sum(F.shape[0] for _, _, F in meshes)))
+    use_gpu = _resolve_device(device)
+    prepared_solver = _ensure_prepared(meshes, prepared)
+    use_bvh = _select_bvh(p["bvh"], prepared_solver.total_faces)
     result: Dict[str, Dict[str, float]] = {name: {} for name, _, _ in meshes}
     stats_result: Dict[str, Dict[str, float]] = {} if return_stats else None  # type: ignore[assignment]
-    emitters = prepare_emitters(meshes, samples=samples, rays=rays, flip_faces=flip_faces)
+    emitters = prepared_solver.get_emitters(samples=samples, rays=rays, flip_faces=flip_faces)
     areas = [emitter.total_area for emitter in emitters] if reciprocity else None
-    scene = prepare_scene(meshes, use_bvh=use_bvh)
+    scene = prepared_solver.get_scene(use_bvh=use_bvh)
 
     d_scene = None
     if use_gpu:
-        d_scene = {
-            "v0": cuda.to_device(scene.v0),
-            "e1": cuda.to_device(scene.e1),
-            "e2": cuda.to_device(scene.e2),
-            "normals": cuda.to_device(scene.normals),
-            "sid": cuda.to_device(scene.sid),
-        }
-        if scene.use_bvh:
-            d_scene["bb_min"] = cuda.to_device(scene.bb_min)
-            d_scene["bb_max"] = cuda.to_device(scene.bb_max)
-            d_scene["left"] = cuda.to_device(scene.left)
-            d_scene["right"] = cuda.to_device(scene.right)
-            d_scene["start"] = cuda.to_device(scene.start)
-            d_scene["count"] = cuda.to_device(scene.count)
+        d_scene = prepared_solver.get_device_scene(use_bvh=use_bvh)
 
     n_surf = len(meshes)
     for idx_emit, (name_e, _, _) in enumerate(meshes):
@@ -643,7 +771,7 @@ def view_factor_matrix(meshes: List[Tuple[str, np.ndarray, np.ndarray]], params:
         iters_done = 0
 
         if use_gpu:
-            emitter_dev = _upload_emitter_data(emitter)
+            emitter_dev = prepared_solver.get_device_emitter(idx_emit, samples=samples, rays=rays, flip_faces=flip_faces)
             d_orig = cuda.device_array((n_rays_once, 3), dtype=np.float32)
             d_dirs = cuda.device_array((n_rays_once, 3), dtype=np.float32)
             d_hit_sid = cuda.device_array(n_rays_once, dtype=np.int32)
@@ -679,11 +807,11 @@ def view_factor_matrix(meshes: List[Tuple[str, np.ndarray, np.ndarray]], params:
                 if gpu_raygen:
                     launch = kernel_build_rays[blocks, threads, stream] if cuda_async else kernel_build_rays[blocks, threads]
                     launch(
-                        emitter_dev["u_grid"], emitter_dev["v_grid"],
-                        emitter_dev["halton_tri"], emitter_dev["halton_u"], emitter_dev["halton_v"],
-                        emitter_dev["halton_r1"], emitter_dev["halton_r2"], emitter_dev["cdf"],
-                        emitter_dev["tri_a"], emitter_dev["tri_e1"], emitter_dev["tri_e2"],
-                        emitter_dev["tri_u"], emitter_dev["tri_v"], emitter_dev["tri_n"],
+                        emitter_dev.u_grid, emitter_dev.v_grid,
+                        emitter_dev.halton_tri, emitter_dev.halton_u, emitter_dev.halton_v,
+                        emitter_dev.halton_r1, emitter_dev.halton_r2, emitter_dev.cdf,
+                        emitter_dev.tri_a, emitter_dev.tri_e1, emitter_dev.tri_e2,
+                        emitter_dev.tri_u, emitter_dev.tri_v, emitter_dev.tri_n,
                         rays, d_orig, d_dirs, cp_grid, cp_dims,
                     )
                 else:
@@ -701,13 +829,13 @@ def view_factor_matrix(meshes: List[Tuple[str, np.ndarray, np.ndarray]], params:
                 if scene.use_bvh:
                     trace = kernel_trace_bvh_firsthit[blocks, threads, stream] if cuda_async else kernel_trace_bvh_firsthit[blocks, threads]
                     trace(
-                        d_orig, d_dirs, d_scene["v0"], d_scene["e1"], d_scene["e2"], d_scene["normals"], d_scene["sid"],
-                        d_scene["bb_min"], d_scene["bb_max"], d_scene["left"], d_scene["right"], d_scene["start"], d_scene["count"],
+                        d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.normals, d_scene.sid,
+                        d_scene.bb_min, d_scene.bb_max, d_scene.left, d_scene.right, d_scene.start, d_scene.count,
                         emit_sid, min_sid, d_hit_sid, d_hit_front,
                     )
                 else:
                     trace = kernel_trace_firsthit[blocks, threads, stream] if cuda_async else kernel_trace_firsthit[blocks, threads]
-                    trace(d_orig, d_dirs, d_scene["v0"], d_scene["e1"], d_scene["e2"], d_scene["normals"], d_scene["sid"], emit_sid, min_sid, d_hit_sid, d_hit_front)
+                    trace(d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.normals, d_scene.sid, emit_sid, min_sid, d_hit_sid, d_hit_front)
                 reduce_kernel = kernel_reduce_hits[blocks, threads, stream] if cuda_async else kernel_reduce_hits[blocks, threads]
                 reduce_kernel(d_hit_sid, d_hit_front, d_hf, d_hb, n_surf)
 
@@ -747,16 +875,24 @@ def view_factor_matrix(meshes: List[Tuple[str, np.ndarray, np.ndarray]], params:
             mean_b += delta_b / iters_done
             M2_b += delta_b * (b_iter - mean_b)
 
+            check_matrix = _convergence_checkpoint(
+                iters_done,
+                min_iters=min_iters,
+                interval=convergence_interval if use_gpu else 1,
+                max_iters=max_iters,
+                needs_variance=(tol_mode == "stderr"),
+            )
             if tol_mode == "delta":
                 curr_f = hits_f / float(total_rays)
                 curr_b = hits_b / float(total_rays)
-                if prev_f is not None and iters_done >= max(1, min_iters):
+                if check_matrix and prev_f is not None:
                     if np.all(np.abs(curr_f - prev_f) < tol) and np.all(np.abs(curr_b - prev_b) < tol):
                         break
-                prev_f = curr_f.copy()
-                prev_b = curr_b.copy()
+                if check_matrix:
+                    prev_f = curr_f.copy()
+                    prev_b = curr_b.copy()
             elif tol_mode == "stderr":
-                if iters_done >= max(1, min_iters) and iters_done > 1:
+                if check_matrix:
                     se_f = np.sqrt(np.maximum(M2_f / (iters_done - 1), 0.0) / iters_done)
                     se_b = np.sqrt(np.maximum(M2_b / (iters_done - 1), 0.0) / iters_done)
                     if np.all(se_f[recv_idx] <= tol) and np.all(se_b[recv_idx] <= tol):
@@ -802,16 +938,21 @@ def view_factor_matrix(meshes: List[Tuple[str, np.ndarray, np.ndarray]], params:
     return result
 
 
-def view_factor(sender, receiver, params: MatrixParams):
+def view_factor(sender, receiver, params: MatrixParams, *, prepared: PreparedSolver | None = None):
     senders = [sender] if isinstance(sender, tuple) else list(sender)
     receivers = [receiver] if isinstance(receiver, tuple) else list(receiver)
     meshes = senders + receivers
-    vf_all = view_factor_matrix(meshes, params=params)
+    vf_all = view_factor_matrix(meshes, params=params, prepared=prepared)
     sender_names = [s[0] for s in senders]
     return {name: vf_all.get(name, {}) for name in sender_names}
 
 
-def view_factor_to_tregenza_sky(meshes: List[Tuple[str, np.ndarray, np.ndarray]], params: SkyParams):
+def view_factor_to_tregenza_sky(
+    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
+    params: SkyParams,
+    *,
+    prepared: PreparedSolver | None = None,
+):
     if not isinstance(params, SkyParams):
         raise TypeError("params must be a SkyParams instance")
     if len(meshes) == 0:
@@ -828,24 +969,14 @@ def view_factor_to_tregenza_sky(meshes: List[Tuple[str, np.ndarray, np.ndarray]]
     tol = p["tol"]
     tol_mode = p["tol_mode"]
     min_iters = p["min_iters"]
+    convergence_interval = max(1, int(p["convergence_interval"]))
     discrete = p["discrete"]
 
-    have_cuda = cuda.is_available()
-    dev = (device or "auto").lower()
-    if dev not in ("auto", "gpu", "cpu"):
-        raise ValueError(f"device must be 'auto', 'gpu', or 'cpu' (got {device!r})")
-    if dev == "auto":
-        use_gpu = have_cuda
-    elif dev == "gpu":
-        if not have_cuda:
-            raise RuntimeError("device='gpu' requested but CUDA is not available")
-        use_gpu = True
-    else:
-        use_gpu = False
-
-    use_bvh = _select_bvh(p["bvh"], int(sum(F.shape[0] for _, _, F in meshes)))
-    emitters = prepare_emitters(meshes, samples=samples, rays=rays, flip_faces=False)
-    scene = prepare_scene(meshes, use_bvh=use_bvh)
+    use_gpu = _resolve_device(device)
+    prepared_solver = _ensure_prepared(meshes, prepared)
+    use_bvh = _select_bvh(p["bvh"], prepared_solver.total_faces)
+    emitters = prepared_solver.get_emitters(samples=samples, rays=rays, flip_faces=False)
+    scene = prepared_solver.get_scene(use_bvh=use_bvh)
     sky_name = "Sky"
     patch_prefix = "Sky_Patch_"
     sky_keys = [f"{patch_prefix}{i}" for i in range(1, 146)] if discrete else [sky_name]
@@ -853,14 +984,7 @@ def view_factor_to_tregenza_sky(meshes: List[Tuple[str, np.ndarray, np.ndarray]]
 
     d_scene = None
     if use_gpu:
-        d_scene = {"v0": cuda.to_device(scene.v0), "e1": cuda.to_device(scene.e1), "e2": cuda.to_device(scene.e2), "sid": cuda.to_device(scene.sid)}
-        if scene.use_bvh:
-            d_scene["bb_min"] = cuda.to_device(scene.bb_min)
-            d_scene["bb_max"] = cuda.to_device(scene.bb_max)
-            d_scene["left"] = cuda.to_device(scene.left)
-            d_scene["right"] = cuda.to_device(scene.right)
-            d_scene["start"] = cuda.to_device(scene.start)
-            d_scene["count"] = cuda.to_device(scene.count)
+        d_scene = prepared_solver.get_device_scene(use_bvh=use_bvh)
 
     for idx_emit, (name_e, _, _) in enumerate(meshes):
         if len(meshes) <= 1:
@@ -868,9 +992,10 @@ def view_factor_to_tregenza_sky(meshes: List[Tuple[str, np.ndarray, np.ndarray]]
         t0 = time.time()
         emitter = emitters[idx_emit]
         n_rays_once = emitter.n_cells * rays
-        counts_total = np.zeros(145, np.int64)
-        mean_bins = np.zeros(145, np.float64)
-        M2_bins = np.zeros(145, np.float64)
+        counts_total = np.zeros(145, np.int64) if discrete else None
+        mean_bins = np.zeros(145, np.float64) if discrete else None
+        M2_bins = np.zeros(145, np.float64) if discrete else None
+        upward_total = 0
         mean_sky = 0.0
         M2_sky = 0.0
         prev_frac = None
@@ -878,26 +1003,28 @@ def view_factor_to_tregenza_sky(meshes: List[Tuple[str, np.ndarray, np.ndarray]]
         iters_done = 0
 
         if use_gpu:
-            emitter_dev = _upload_emitter_data(emitter)
+            emitter_dev = prepared_solver.get_device_emitter(idx_emit, samples=samples, rays=rays, flip_faces=False)
             d_orig = cuda.device_array((n_rays_once, 3), dtype=np.float32)
             d_dirs = cuda.device_array((n_rays_once, 3), dtype=np.float32)
-            d_counts = cuda.device_array(145, dtype=np.int32)
+            d_counts = cuda.device_array(145, dtype=np.int32) if discrete else None
+            d_upward = cuda.device_array(1, dtype=np.int32) if not discrete else None
             stream = cuda.stream() if cuda_async else None
             if cuda_async:
-                h_counts = cuda.pinned_array(145, dtype=np.int32)
+                h_counts = cuda.pinned_array(145, dtype=np.int32) if discrete else None
+                h_upward = cuda.pinned_array(1, dtype=np.int32) if not discrete else None
                 if not gpu_raygen:
                     h_orig = cuda.pinned_array((n_rays_once, 3), dtype=np.float32)
                     h_dirs = cuda.pinned_array((n_rays_once, 3), dtype=np.float32)
             else:
-                h_counts = None
+                h_counts = h_upward = None
                 if not gpu_raygen:
                     h_orig, h_dirs = _host_ray_buffers(n_rays_once)
             blocks, threads = _compute_cuda_launch(n_rays_once, None)
-            zblocks, zthreads = _compute_cuda_launch(145, threads)
+            zblocks, zthreads = _compute_cuda_launch(145 if discrete else 1, threads)
         else:
             orig, dire = _host_ray_buffers(n_rays_once)
             hitmask = np.empty(n_rays_once, dtype=np.uint8)
-            counts_iter = np.empty(145, dtype=np.int64)
+            counts_iter = np.empty(145, dtype=np.int64) if discrete else None
 
         for itr in range(max_iters):
             rng = np.random.default_rng(seed + idx_emit + itr)
@@ -908,11 +1035,11 @@ def view_factor_to_tregenza_sky(meshes: List[Tuple[str, np.ndarray, np.ndarray]]
                 if gpu_raygen:
                     launch = kernel_build_rays[blocks, threads, stream] if cuda_async else kernel_build_rays[blocks, threads]
                     launch(
-                        emitter_dev["u_grid"], emitter_dev["v_grid"],
-                        emitter_dev["halton_tri"], emitter_dev["halton_u"], emitter_dev["halton_v"],
-                        emitter_dev["halton_r1"], emitter_dev["halton_r2"], emitter_dev["cdf"],
-                        emitter_dev["tri_a"], emitter_dev["tri_e1"], emitter_dev["tri_e2"],
-                        emitter_dev["tri_u"], emitter_dev["tri_v"], emitter_dev["tri_n"],
+                        emitter_dev.u_grid, emitter_dev.v_grid,
+                        emitter_dev.halton_tri, emitter_dev.halton_u, emitter_dev.halton_v,
+                        emitter_dev.halton_r1, emitter_dev.halton_r2, emitter_dev.cdf,
+                        emitter_dev.tri_a, emitter_dev.tri_e1, emitter_dev.tri_e2,
+                        emitter_dev.tri_u, emitter_dev.tri_v, emitter_dev.tri_n,
                         rays, d_orig, d_dirs, cp_grid, cp_dims,
                     )
                 else:
@@ -925,25 +1052,47 @@ def view_factor_to_tregenza_sky(meshes: List[Tuple[str, np.ndarray, np.ndarray]]
                         d_dirs.copy_to_device(h_dirs)
 
                 zero = kernel_zero_i32[zblocks, zthreads, stream] if cuda_async else kernel_zero_i32[zblocks, zthreads]
-                zero(d_counts)
-                if scene.use_bvh:
-                    trace = kernel_trace_bvh_tregenza[blocks, threads, stream] if cuda_async else kernel_trace_bvh_tregenza[blocks, threads]
-                    trace(
-                        d_orig, d_dirs, d_scene["v0"], d_scene["e1"], d_scene["e2"], d_scene["sid"],
-                        d_scene["bb_min"], d_scene["bb_max"], d_scene["left"], d_scene["right"], d_scene["start"], d_scene["count"],
-                        idx_emit, 0, d_counts,
-                    )
+                if discrete:
+                    zero(d_counts)
+                    if scene.use_bvh:
+                        trace = kernel_trace_bvh_tregenza[blocks, threads, stream] if cuda_async else kernel_trace_bvh_tregenza[blocks, threads]
+                        trace(
+                            d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.sid,
+                            d_scene.bb_min, d_scene.bb_max, d_scene.left, d_scene.right, d_scene.start, d_scene.count,
+                            idx_emit, 0, d_counts,
+                        )
+                    else:
+                        trace = kernel_trace_tregenza[blocks, threads, stream] if cuda_async else kernel_trace_tregenza[blocks, threads]
+                        trace(d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.sid, idx_emit, 0, d_counts)
                 else:
-                    trace = kernel_trace_tregenza[blocks, threads, stream] if cuda_async else kernel_trace_tregenza[blocks, threads]
-                    trace(d_orig, d_dirs, d_scene["v0"], d_scene["e1"], d_scene["e2"], d_scene["sid"], idx_emit, 0, d_counts)
+                    zero(d_upward)
+                    if scene.use_bvh:
+                        trace = kernel_trace_bvh_count_upward[blocks, threads, stream] if cuda_async else kernel_trace_bvh_count_upward[blocks, threads]
+                        trace(
+                            d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.sid,
+                            d_scene.bb_min, d_scene.bb_max, d_scene.left, d_scene.right, d_scene.start, d_scene.count,
+                            idx_emit, 0, d_upward,
+                        )
+                    else:
+                        trace = kernel_trace_count_upward[blocks, threads, stream] if cuda_async else kernel_trace_count_upward[blocks, threads]
+                        trace(d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.sid, idx_emit, 0, d_upward)
 
                 if cuda_async:
-                    d_counts.copy_to_host(h_counts, stream=stream)
+                    if discrete:
+                        d_counts.copy_to_host(h_counts, stream=stream)
+                    else:
+                        d_upward.copy_to_host(h_upward, stream=stream)
                     stream.synchronize()
-                    counts_iter_arr = np.asarray(h_counts, dtype=np.int64)
+                    if discrete:
+                        counts_iter_arr = np.asarray(h_counts, dtype=np.int64)
+                    else:
+                        upward_iter = int(h_upward[0])
                 else:
                     cuda.synchronize()
-                    counts_iter_arr = d_counts.copy_to_host().astype(np.int64)
+                    if discrete:
+                        counts_iter_arr = d_counts.copy_to_host().astype(np.int64)
+                    else:
+                        upward_iter = int(d_upward.copy_to_host()[0])
             else:
                 _build_rays_host(emitter, rays, orig, dire, cp_grid, cp_dims)
                 if scene.use_bvh:
@@ -954,45 +1103,71 @@ def view_factor_to_tregenza_sky(meshes: List[Tuple[str, np.ndarray, np.ndarray]]
                     )
                 else:
                     trace_cpu_hitmask(orig, dire, scene.v0, scene.e1, scene.e2, scene.sid, idx_emit, 0, hitmask)
-                bin_tregenza_cpu(dire, hitmask, counts_iter)
-                counts_iter_arr = counts_iter
+                if discrete:
+                    bin_tregenza_cpu(dire, hitmask, counts_iter)
+                    counts_iter_arr = counts_iter
+                else:
+                    upward_iter = int(count_upward_misses_cpu(dire, hitmask))
 
-            counts_total += counts_iter_arr
             total_rays += n_rays_once
             iters_done += 1
-            frac_iter = counts_iter_arr.astype(np.float64) / float(n_rays_once)
-            sky_iter = float(frac_iter.sum())
-            delta = frac_iter - mean_bins
-            mean_bins += delta / iters_done
-            M2_bins += delta * (frac_iter - mean_bins)
-            delta_sky = sky_iter - mean_sky
-            mean_sky += delta_sky / iters_done
-            M2_sky += delta_sky * (sky_iter - mean_sky)
+            check_sky = _convergence_checkpoint(
+                iters_done,
+                min_iters=min_iters,
+                interval=convergence_interval if use_gpu else 1,
+                max_iters=max_iters,
+                needs_variance=(tol_mode == "stderr"),
+            )
+            if discrete:
+                counts_total += counts_iter_arr
+                frac_iter = counts_iter_arr.astype(np.float64) / float(n_rays_once)
+                sky_iter = float(frac_iter.sum())
+                delta = frac_iter - mean_bins
+                mean_bins += delta / iters_done
+                M2_bins += delta * (frac_iter - mean_bins)
+                delta_sky = sky_iter - mean_sky
+                mean_sky += delta_sky / iters_done
+                M2_sky += delta_sky * (sky_iter - mean_sky)
 
-            if tol_mode == "delta":
-                if iters_done >= max(1, min_iters):
-                    curr = counts_total.astype(np.float64) / float(total_rays)
-                    if prev_frac is not None and np.all(np.abs(curr - prev_frac) < tol):
-                        break
-                    prev_frac = curr.copy()
-            elif tol_mode == "stderr":
-                if iters_done >= max(1, min_iters) and iters_done > 1:
-                    se_bins = np.sqrt(np.maximum(M2_bins / (iters_done - 1), 0.0) / iters_done)
-                    if discrete:
+                if tol_mode == "delta":
+                    if check_sky:
+                        curr = counts_total.astype(np.float64) / float(total_rays)
+                        if prev_frac is not None and np.all(np.abs(curr - prev_frac) < tol):
+                            break
+                        prev_frac = curr.copy()
+                elif tol_mode == "stderr":
+                    if check_sky:
+                        se_bins = np.sqrt(np.maximum(M2_bins / (iters_done - 1), 0.0) / iters_done)
                         if np.all(se_bins <= tol):
                             break
-                    else:
+                else:
+                    raise ValueError(f"Unknown tol_mode: {tol_mode}")
+            else:
+                upward_total += upward_iter
+                frac_iter = upward_iter / float(n_rays_once)
+                delta_sky = frac_iter - mean_sky
+                mean_sky += delta_sky / iters_done
+                M2_sky += delta_sky * (frac_iter - mean_sky)
+
+                if tol_mode == "delta":
+                    if check_sky:
+                        curr = upward_total / float(total_rays)
+                        if prev_frac is not None and abs(curr - prev_frac) < tol:
+                            break
+                        prev_frac = curr
+                elif tol_mode == "stderr":
+                    if check_sky:
                         se_sky = max(M2_sky / (iters_done - 1), 0.0) ** 0.5 / iters_done**0.5
                         if se_sky <= tol:
                             break
-            else:
-                raise ValueError(f"Unknown tol_mode: {tol_mode}")
+                else:
+                    raise ValueError(f"Unknown tol_mode: {tol_mode}")
 
-        frac = counts_total.astype(np.float64) / float(max(1, total_rays))
         if discrete:
+            frac = counts_total.astype(np.float64) / float(max(1, total_rays))
             result[name_e].update({f"{patch_prefix}{i+1}": float(frac[i]) for i in range(145)})
         else:
-            result[name_e][sky_name] = float(frac.sum())
+            result[name_e][sky_name] = float(upward_total / float(max(1, total_rays)))
 
         msg = f"({idx_emit+1}/{len(meshes)}) [{name_e}] {iters_done} iter, {total_rays:,} rays -> {time.time() - t0:0.3f}s  (BVH={'builtin' if use_bvh else 'off'}, device={'gpu' if use_gpu else 'cpu'})"
         _log(msg)

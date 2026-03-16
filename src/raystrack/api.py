@@ -14,6 +14,7 @@ from .utils.helpers import (
     enforce_reciprocity_and_rowsum as _enforce_reciprocity_and_rowsum,
     enforce_reciprocity_only as _enforce_reciprocity_only,
 )
+from .utils.prepared import PreparedSolver
 
 
 def _row_sum(row: Dict[str, float]) -> float:
@@ -25,6 +26,7 @@ def view_factor_outside_workflow(
     *,
     matrix_params: MatrixParams,
     sky_params: SkyParams,
+    prepared: PreparedSolver | None = None,
 ) -> Tuple[
     Dict[str, Dict[str, float]],
     Dict[str, Dict[str, float]],
@@ -51,6 +53,13 @@ def view_factor_outside_workflow(
     not compatible, the workflow falls back to the legacy behaviour of calling
     :func:`view_factor_matrix` and :func:`view_factor_to_tregenza_sky`
     separately.
+
+    Prepared-state reuse
+    --------------------
+    Pass a shared :class:`~raystrack.utils.prepared.PreparedSolver` via
+    ``prepared`` when solving the same mesh set repeatedly. The workflow will
+    then reuse prepared triangle buffers, BVHs, ray tables and CUDA uploads
+    across runs.
 
     Parameters
     ----------
@@ -94,10 +103,11 @@ def view_factor_outside_workflow(
             meshes,
             matrix_params=matrix_defaults,
             sky_params=sky_params,
+            prepared=prepared,
         )
     else:
-        vf_scene = view_factor_matrix(meshes, params=matrix_defaults)
-        sky_vf = view_factor_to_tregenza_sky(meshes, params=sky_params)
+        vf_scene = view_factor_matrix(meshes, params=matrix_defaults, prepared=prepared)
+        sky_vf = view_factor_to_tregenza_sky(meshes, params=sky_params, prepared=prepared)
 
     # Determine convergence tolerances
     tol_matrix = float(matrix_params.tol)
