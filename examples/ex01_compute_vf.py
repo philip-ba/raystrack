@@ -58,7 +58,7 @@ def main():
         tol_mode="stderr",
         min_iters=10,
         reciprocity=True,
-        enforce_reciprocity_rowsum=True,
+        enforce_reciprocity_rowsum=False,
         cuda_async=True,
     )
 

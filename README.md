@@ -77,6 +77,15 @@ res = view_factor_matrix(meshes, params=params)
 print(res["A"])  # e.g. {"B_front": 0.5, "B_back": 0.0, ...}
 ```
 
+To persist a matrix without directional suffixes in the saved JSON:
+```python
+from raystrack import save_vf_matrix_json
+
+save_vf_matrix_json(res, "vf_matrix.json", strip_dir=True)
+```
+This collapses receiver keys like `"B_front"` and `"B_back"` into `"B"` and
+sums both values per sender row.
+
 ## Parameter presets
 Raystrack uses two parameter containers to keep configuration consistent:
 - `MatrixParams`: controls the scene-to-scene view-factor solve (sampling, BVH,

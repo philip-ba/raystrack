@@ -8,7 +8,7 @@ from numba import cuda
 
 INF = 1.0e20
 STACK_SIZE = 64
-MAX_SHARED_SURF = 256
+MAX_SHARED_SURF = 1024
 TREGENZA_BINS = 145
 
 
@@ -575,6 +575,44 @@ def kernel_reduce_hits(hit_sid, hit_front, hits_f, hits_b, n_surf):
 
 
 @cuda.jit
+def kernel_accumulate_hits(hits_f_iter, hits_b_iter, hits_f_total, hits_b_total):
+    i = cuda.grid(1)
+    if i >= hits_f_iter.shape[0]:
+        return
+    hits_f_total[i] += hits_f_iter[i]
+    hits_b_total[i] += hits_b_iter[i]
+
+
+@cuda.jit
+def kernel_accumulate_hits_stats(
+    hits_f_iter,
+    hits_b_iter,
+    hits_f_total,
+    hits_b_total,
+    sum_f,
+    sumsq_f,
+    sum_b,
+    sumsq_b,
+    inv_rays,
+):
+    i = cuda.grid(1)
+    if i >= hits_f_iter.shape[0]:
+        return
+
+    hf = hits_f_iter[i]
+    hb = hits_b_iter[i]
+    xf = float(hf) * inv_rays
+    xb = float(hb) * inv_rays
+
+    hits_f_total[i] += hf
+    hits_b_total[i] += hb
+    sum_f[i] += xf
+    sumsq_f[i] += xf * xf
+    sum_b[i] += xb
+    sumsq_b[i] += xb * xb
+
+
+@cuda.jit
 def kernel_zero_i64(a):
     i = cuda.grid(1)
     if i < a.size:
@@ -604,6 +642,7 @@ def kernel_build_rays(
     tri_u,
     tri_v,
     tri_n,
+    tri_origin_eps,
     rays_per_cell,
     orig,
     dire,
@@ -648,10 +687,11 @@ def kernel_build_rays(
     dx = x * tri_u[tri, 0] + y * tri_v[tri, 0] + z * tri_n[tri, 0]
     dy = x * tri_u[tri, 1] + y * tri_v[tri, 1] + z * tri_n[tri, 1]
     dz = x * tri_u[tri, 2] + y * tri_v[tri, 2] + z * tri_n[tri, 2]
+    eps = tri_origin_eps[tri]
 
-    orig[k, 0] = px
-    orig[k, 1] = py
-    orig[k, 2] = pz
+    orig[k, 0] = px + eps * tri_n[tri, 0]
+    orig[k, 1] = py + eps * tri_n[tri, 1]
+    orig[k, 2] = pz + eps * tri_n[tri, 2]
     dire[k, 0] = dx
     dire[k, 1] = dy
     dire[k, 2] = dz
@@ -1225,6 +1265,8 @@ __all__ = [
     "kernel_trace_combined",
     "kernel_trace_bvh_combined",
     "kernel_reduce_hits",
+    "kernel_accumulate_hits",
+    "kernel_accumulate_hits_stats",
     "kernel_zero_i64",
     "kernel_zero_i32",
     "kernel_build_rays",

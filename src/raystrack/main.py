@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 import subprocess
 import sys
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from numba import cuda
@@ -29,6 +30,8 @@ from .utils.cpu_trace import (
     trace_cpu_hitmask,
 )
 from .utils.cuda_trace import (
+    kernel_accumulate_hits,
+    kernel_accumulate_hits_stats,
     kernel_bin_tregenza,
     kernel_build_rays,
     kernel_count_upward_misses,
@@ -50,6 +53,8 @@ from .utils.ray_builder import build_rays
 
 _LOG_PROC = None
 _BVH_AUTO_THRESHOLD = 512
+_GPU_BATCH_STREAMS = 4
+_GPU_SMALL_EMITTER_RAY_CAP = 262144
 
 
 def _open_log_console() -> None:
@@ -190,6 +195,7 @@ def _build_rays_host(emitter: PreparedEmitter, rays: int, orig, dire, cp_grid, c
         emitter.tri_u,
         emitter.tri_v,
         emitter.tri_n,
+        emitter.tri_origin_eps,
         rays,
         orig,
         dire,
@@ -197,6 +203,837 @@ def _build_rays_host(emitter: PreparedEmitter, rays: int, orig, dire, cp_grid, c
         cp_dims,
     )
 
+
+@dataclass
+class _MatrixGpuWorkspace:
+    stream: Any
+    ray_cap: int
+    n_surf: int
+    track_stats: bool
+    d_orig: Any
+    d_dirs: Any
+    d_hit_sid: Any
+    d_hit_front: Any
+    d_hf_iter: Any
+    d_hb_iter: Any
+    d_hf_total: Any
+    d_hb_total: Any
+    d_sum_f: Any
+    d_sumsq_f: Any
+    d_sum_b: Any
+    d_sumsq_b: Any
+    h_hf_total: np.ndarray
+    h_hb_total: np.ndarray
+    h_sum_f: Optional[np.ndarray]
+    h_sumsq_f: Optional[np.ndarray]
+    h_sum_b: Optional[np.ndarray]
+    h_sumsq_b: Optional[np.ndarray]
+    h_orig: Optional[np.ndarray]
+    h_dirs: Optional[np.ndarray]
+    surf_blocks: int
+    surf_threads: int
+
+
+@dataclass
+class _MatrixGpuEmitterState:
+    idx_emit: int
+    name_e: str
+    receivers: List[int]
+    recv_idx: np.ndarray
+    emit_sid: int
+    min_sid: int
+    emitter: PreparedEmitter
+    emitter_dev: Any
+    n_rays_once: int
+    blocks: int
+    threads: int
+    total_rays: int = 0
+    iters_done: int = 0
+    pending_chunk: int = 0
+    prev_f: Optional[np.ndarray] = None
+    prev_b: Optional[np.ndarray] = None
+    started_at: float = 0.0
+
+
+def _matrix_stats_required(tol_mode: str, return_stats: bool) -> bool:
+    return bool(return_stats or tol_mode == "stderr")
+
+
+def _matrix_can_batch_emitters(*, cuda_async: bool, gpu_raygen: bool) -> bool:
+    return bool(cuda_async and gpu_raygen and _GPU_BATCH_STREAMS > 1)
+
+
+def _matrix_can_chunk_iterations(*, cuda_async: bool, gpu_raygen: bool) -> bool:
+    return not (cuda_async and not gpu_raygen)
+
+
+def _iterations_to_next_checkpoint(
+    iters_done: int,
+    *,
+    min_iters: int,
+    interval: int,
+    max_iters: int,
+    needs_variance: bool,
+) -> int:
+    remaining = int(max_iters) - int(iters_done)
+    if remaining <= 0:
+        return 0
+
+    start = max(1, int(min_iters))
+    if needs_variance:
+        start = max(start, 2)
+
+    if iters_done < start:
+        return min(start - iters_done, remaining)
+
+    span = max(1, int(interval))
+    if span <= 1:
+        return 1
+
+    rem = (iters_done - start) % span
+    return min(span if rem == 0 else span - rem, remaining)
+
+
+def _create_matrix_gpu_workspace(
+    ray_cap: int,
+    n_surf: int,
+    *,
+    cuda_async: bool,
+    gpu_raygen: bool,
+    track_stats: bool,
+) -> _MatrixGpuWorkspace:
+    stream = cuda.stream() if cuda_async else None
+    d_orig = cuda.device_array((ray_cap, 3), dtype=np.float32)
+    d_dirs = cuda.device_array((ray_cap, 3), dtype=np.float32)
+    d_hit_sid = cuda.device_array(ray_cap, dtype=np.int32)
+    d_hit_front = cuda.device_array(ray_cap, dtype=np.uint8)
+    d_hf_iter = cuda.device_array(n_surf, dtype=np.int64)
+    d_hb_iter = cuda.device_array(n_surf, dtype=np.int64)
+    d_hf_total = cuda.device_array(n_surf, dtype=np.int64)
+    d_hb_total = cuda.device_array(n_surf, dtype=np.int64)
+    d_sum_f = cuda.device_array(n_surf, dtype=np.float64) if track_stats else None
+    d_sumsq_f = cuda.device_array(n_surf, dtype=np.float64) if track_stats else None
+    d_sum_b = cuda.device_array(n_surf, dtype=np.float64) if track_stats else None
+    d_sumsq_b = cuda.device_array(n_surf, dtype=np.float64) if track_stats else None
+
+    if cuda_async:
+        h_hf_total = cuda.pinned_array(n_surf, dtype=np.int64)
+        h_hb_total = cuda.pinned_array(n_surf, dtype=np.int64)
+        h_sum_f = cuda.pinned_array(n_surf, dtype=np.float64) if track_stats else None
+        h_sumsq_f = cuda.pinned_array(n_surf, dtype=np.float64) if track_stats else None
+        h_sum_b = cuda.pinned_array(n_surf, dtype=np.float64) if track_stats else None
+        h_sumsq_b = cuda.pinned_array(n_surf, dtype=np.float64) if track_stats else None
+        if gpu_raygen:
+            h_orig = h_dirs = None
+        else:
+            h_orig = cuda.pinned_array((ray_cap, 3), dtype=np.float32)
+            h_dirs = cuda.pinned_array((ray_cap, 3), dtype=np.float32)
+    else:
+        h_hf_total = np.empty(n_surf, dtype=np.int64)
+        h_hb_total = np.empty(n_surf, dtype=np.int64)
+        h_sum_f = np.empty(n_surf, dtype=np.float64) if track_stats else None
+        h_sumsq_f = np.empty(n_surf, dtype=np.float64) if track_stats else None
+        h_sum_b = np.empty(n_surf, dtype=np.float64) if track_stats else None
+        h_sumsq_b = np.empty(n_surf, dtype=np.float64) if track_stats else None
+        if gpu_raygen:
+            h_orig = h_dirs = None
+        else:
+            h_orig, h_dirs = _host_ray_buffers(ray_cap)
+
+    surf_blocks, surf_threads = _compute_cuda_launch(n_surf, None)
+    return _MatrixGpuWorkspace(
+        stream=stream,
+        ray_cap=ray_cap,
+        n_surf=n_surf,
+        track_stats=track_stats,
+        d_orig=d_orig,
+        d_dirs=d_dirs,
+        d_hit_sid=d_hit_sid,
+        d_hit_front=d_hit_front,
+        d_hf_iter=d_hf_iter,
+        d_hb_iter=d_hb_iter,
+        d_hf_total=d_hf_total,
+        d_hb_total=d_hb_total,
+        d_sum_f=d_sum_f,
+        d_sumsq_f=d_sumsq_f,
+        d_sum_b=d_sum_b,
+        d_sumsq_b=d_sumsq_b,
+        h_hf_total=h_hf_total,
+        h_hb_total=h_hb_total,
+        h_sum_f=h_sum_f,
+        h_sumsq_f=h_sumsq_f,
+        h_sum_b=h_sum_b,
+        h_sumsq_b=h_sumsq_b,
+        h_orig=h_orig,
+        h_dirs=h_dirs,
+        surf_blocks=surf_blocks,
+        surf_threads=surf_threads,
+    )
+
+
+def _reset_matrix_gpu_workspace(ws: _MatrixGpuWorkspace) -> None:
+    zero = kernel_zero_i64[ws.surf_blocks, ws.surf_threads, ws.stream] if ws.stream is not None else kernel_zero_i64[ws.surf_blocks, ws.surf_threads]
+    zero(ws.d_hf_total)
+    zero(ws.d_hb_total)
+    if ws.track_stats:
+        zero(ws.d_sum_f)
+        zero(ws.d_sumsq_f)
+        zero(ws.d_sum_b)
+        zero(ws.d_sumsq_b)
+
+
+def _enqueue_matrix_gpu_summary_copy(ws: _MatrixGpuWorkspace) -> None:
+    if ws.stream is not None:
+        ws.d_hf_total.copy_to_host(ws.h_hf_total, stream=ws.stream)
+        ws.d_hb_total.copy_to_host(ws.h_hb_total, stream=ws.stream)
+        if ws.track_stats:
+            ws.d_sum_f.copy_to_host(ws.h_sum_f, stream=ws.stream)
+            ws.d_sumsq_f.copy_to_host(ws.h_sumsq_f, stream=ws.stream)
+            ws.d_sum_b.copy_to_host(ws.h_sum_b, stream=ws.stream)
+            ws.d_sumsq_b.copy_to_host(ws.h_sumsq_b, stream=ws.stream)
+
+
+def _read_matrix_gpu_summary(ws: _MatrixGpuWorkspace) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
+    if ws.stream is not None:
+        ws.stream.synchronize()
+        hits_f_total = np.asarray(ws.h_hf_total)
+        hits_b_total = np.asarray(ws.h_hb_total)
+        if ws.track_stats:
+            return (
+                hits_f_total,
+                hits_b_total,
+                np.asarray(ws.h_sum_f),
+                np.asarray(ws.h_sumsq_f),
+                np.asarray(ws.h_sum_b),
+                np.asarray(ws.h_sumsq_b),
+            )
+        return hits_f_total, hits_b_total, None, None, None, None
+
+    cuda.synchronize()
+    hits_f_total = ws.d_hf_total.copy_to_host()
+    hits_b_total = ws.d_hb_total.copy_to_host()
+    if ws.track_stats:
+        return (
+            hits_f_total,
+            hits_b_total,
+            ws.d_sum_f.copy_to_host(),
+            ws.d_sumsq_f.copy_to_host(),
+            ws.d_sum_b.copy_to_host(),
+            ws.d_sumsq_b.copy_to_host(),
+        )
+    return hits_f_total, hits_b_total, None, None, None, None
+
+
+def _summary_to_stderr(sum_arr: np.ndarray, sumsq_arr: np.ndarray, iters_done: int) -> np.ndarray:
+    if iters_done <= 1:
+        return np.full(sum_arr.shape, np.inf, dtype=np.float64)
+    n = float(iters_done)
+    mean = sum_arr / n
+    m2 = np.maximum(sumsq_arr - n * mean * mean, 0.0)
+    return np.sqrt(m2 / float(iters_done - 1) / n)
+
+
+def _build_matrix_gpu_state(
+    idx_emit: int,
+    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
+    emitters: List[PreparedEmitter],
+    prepared_solver: PreparedSolver,
+    *,
+    samples: int,
+    rays: int,
+    flip_faces: bool,
+    reciprocity: bool,
+) -> Optional[_MatrixGpuEmitterState]:
+    name_e, _, _ = meshes[idx_emit]
+    receivers = [j for j in range(idx_emit + 1, len(meshes))] if reciprocity else [j for j in range(len(meshes)) if j != idx_emit]
+    if not receivers:
+        return None
+
+    recv_idx = np.asarray(receivers, dtype=np.int32)
+    emit_sid, min_sid = _matrix_skip(idx_emit, reciprocity)
+    emitter = emitters[idx_emit]
+    n_rays_once = emitter.n_cells * rays
+    blocks, threads = _compute_cuda_launch(n_rays_once, None)
+    emitter_dev = prepared_solver.get_device_emitter(idx_emit, samples=samples, rays=rays, flip_faces=flip_faces)
+    return _MatrixGpuEmitterState(
+        idx_emit=idx_emit,
+        name_e=name_e,
+        receivers=receivers,
+        recv_idx=recv_idx,
+        emit_sid=emit_sid,
+        min_sid=min_sid,
+        emitter=emitter,
+        emitter_dev=emitter_dev,
+        n_rays_once=n_rays_once,
+        blocks=blocks,
+        threads=threads,
+        started_at=time.time(),
+    )
+
+
+def _enqueue_matrix_gpu_chunk(
+    ws: _MatrixGpuWorkspace,
+    state: _MatrixGpuEmitterState,
+    scene,
+    d_scene,
+    *,
+    rays: int,
+    seed: int,
+    gpu_raygen: bool,
+    cuda_async: bool,
+) -> None:
+    d_orig = ws.d_orig[: state.n_rays_once]
+    d_dirs = ws.d_dirs[: state.n_rays_once]
+    d_hit_sid = ws.d_hit_sid[: state.n_rays_once]
+    d_hit_front = ws.d_hit_front[: state.n_rays_once]
+    stream = ws.stream
+    zero = kernel_zero_i64[ws.surf_blocks, ws.surf_threads, stream] if stream is not None else kernel_zero_i64[ws.surf_blocks, ws.surf_threads]
+
+    offset = 0
+    while offset < state.pending_chunk:  # type: ignore[attr-defined]
+        itr = state.iters_done + offset
+        rng = np.random.default_rng(seed + state.idx_emit + itr)
+        cp_grid = rng.random(2, dtype=np.float32)
+        cp_dims = rng.random(5, dtype=np.float32)
+
+        if gpu_raygen:
+            launch = kernel_build_rays[state.blocks, state.threads, stream] if stream is not None else kernel_build_rays[state.blocks, state.threads]
+            launch(
+                state.emitter_dev.u_grid, state.emitter_dev.v_grid,
+                state.emitter_dev.halton_tri, state.emitter_dev.halton_u, state.emitter_dev.halton_v,
+                state.emitter_dev.halton_r1, state.emitter_dev.halton_r2, state.emitter_dev.cdf,
+                state.emitter_dev.tri_a, state.emitter_dev.tri_e1, state.emitter_dev.tri_e2,
+                state.emitter_dev.tri_u, state.emitter_dev.tri_v, state.emitter_dev.tri_n, state.emitter_dev.tri_origin_eps,
+                rays, d_orig, d_dirs, cp_grid, cp_dims,
+            )
+        else:
+            h_orig = ws.h_orig[: state.n_rays_once]
+            h_dirs = ws.h_dirs[: state.n_rays_once]
+            _build_rays_host(state.emitter, rays, h_orig, h_dirs, cp_grid, cp_dims)
+            if stream is not None:
+                d_orig.copy_to_device(h_orig, stream=stream)
+                d_dirs.copy_to_device(h_dirs, stream=stream)
+            else:
+                d_orig.copy_to_device(h_orig)
+                d_dirs.copy_to_device(h_dirs)
+
+        zero(ws.d_hf_iter)
+        zero(ws.d_hb_iter)
+
+        if scene.use_bvh:
+            trace = kernel_trace_bvh_firsthit[state.blocks, state.threads, stream] if stream is not None else kernel_trace_bvh_firsthit[state.blocks, state.threads]
+            trace(
+                d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.normals, d_scene.sid,
+                d_scene.bb_min, d_scene.bb_max, d_scene.left, d_scene.right, d_scene.start, d_scene.count,
+                state.emit_sid, state.min_sid, d_hit_sid, d_hit_front,
+            )
+        else:
+            trace = kernel_trace_firsthit[state.blocks, state.threads, stream] if stream is not None else kernel_trace_firsthit[state.blocks, state.threads]
+            trace(
+                d_orig, d_dirs, d_scene.v0, d_scene.e1, d_scene.e2, d_scene.normals, d_scene.sid,
+                state.emit_sid, state.min_sid, d_hit_sid, d_hit_front,
+            )
+
+        reduce_kernel = kernel_reduce_hits[state.blocks, state.threads, stream] if stream is not None else kernel_reduce_hits[state.blocks, state.threads]
+        reduce_kernel(d_hit_sid, d_hit_front, ws.d_hf_iter, ws.d_hb_iter, ws.n_surf)
+
+        if ws.track_stats:
+            acc = kernel_accumulate_hits_stats[ws.surf_blocks, ws.surf_threads, stream] if stream is not None else kernel_accumulate_hits_stats[ws.surf_blocks, ws.surf_threads]
+            acc(
+                ws.d_hf_iter,
+                ws.d_hb_iter,
+                ws.d_hf_total,
+                ws.d_hb_total,
+                ws.d_sum_f,
+                ws.d_sumsq_f,
+                ws.d_sum_b,
+                ws.d_sumsq_b,
+                1.0 / float(state.n_rays_once),
+            )
+        else:
+            acc = kernel_accumulate_hits[ws.surf_blocks, ws.surf_threads, stream] if stream is not None else kernel_accumulate_hits[ws.surf_blocks, ws.surf_threads]
+            acc(ws.d_hf_iter, ws.d_hb_iter, ws.d_hf_total, ws.d_hb_total)
+
+        offset += 1
+
+
+def _finalize_matrix_gpu_state(
+    state: _MatrixGpuEmitterState,
+    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
+    result: Dict[str, Dict[str, float]],
+    stats_result: Optional[Dict[str, Dict[str, float]]],
+    *,
+    hits_f_total: np.ndarray,
+    hits_b_total: np.ndarray,
+    sum_f: Optional[np.ndarray],
+    sumsq_f: Optional[np.ndarray],
+    sum_b: Optional[np.ndarray],
+    sumsq_b: Optional[np.ndarray],
+    reciprocity: bool,
+    areas: Optional[List[float]],
+    return_stats: bool,
+    use_bvh: bool,
+) -> None:
+    if state.iters_done > 1 and sum_f is not None and sumsq_f is not None and sum_b is not None and sumsq_b is not None:
+        se_f = _summary_to_stderr(sum_f, sumsq_f, state.iters_done)
+        se_b = _summary_to_stderr(sum_b, sumsq_b, state.iters_done)
+    else:
+        se_f = np.full((len(meshes),), np.inf, dtype=np.float64)
+        se_b = np.full((len(meshes),), np.inf, dtype=np.float64)
+
+    row: Dict[str, float] = {}
+    stats_row: Dict[str, float] = {}
+    for j in state.receivers:
+        name_r, _, _ = meshes[j]
+        f = hits_f_total[j] / float(state.total_rays)
+        b = hits_b_total[j] / float(state.total_rays)
+        if f > 0.0:
+            row[f"{name_r}_front"] = f
+            if reciprocity and areas is not None and areas[j] > 0.0:
+                result[name_r][f"{state.name_e}_front"] = f * (areas[state.idx_emit] / areas[j])
+            if return_stats:
+                stats_row[f"{name_r}_front"] = float(se_f[j])
+        if b > 0.0:
+            row[f"{name_r}_back"] = b
+            if return_stats:
+                stats_row[f"{name_r}_back"] = float(se_b[j])
+    result[state.name_e].update(row)
+    if return_stats and stats_result is not None:
+        stats_result[state.name_e] = stats_row
+
+    msg = (
+        f"({state.idx_emit+1}/{len(meshes)}) [{state.name_e}] {state.iters_done} iter, "
+        f"{state.total_rays:,} rays -> {time.time() - state.started_at:0.3f}s  "
+        f"(BVH={'builtin' if use_bvh else 'off'}, device=gpu)"
+    )
+    _log(msg)
+    _rhino_log(msg)
+
+
+def _evaluate_matrix_gpu_state(
+    state: _MatrixGpuEmitterState,
+    *,
+    hits_f_total: np.ndarray,
+    hits_b_total: np.ndarray,
+    sum_f: Optional[np.ndarray],
+    sumsq_f: Optional[np.ndarray],
+    sum_b: Optional[np.ndarray],
+    sumsq_b: Optional[np.ndarray],
+    tol: float,
+    tol_mode: str,
+    min_iters: int,
+    convergence_interval: int,
+    max_iters: int,
+) -> bool:
+    done = state.iters_done >= int(max_iters)
+    check_matrix = _convergence_checkpoint(
+        state.iters_done,
+        min_iters=min_iters,
+        interval=convergence_interval,
+        max_iters=max_iters,
+        needs_variance=(tol_mode == "stderr"),
+    )
+
+    if tol_mode == "delta":
+        curr_f = hits_f_total.astype(np.float64) / float(max(1, state.total_rays))
+        curr_b = hits_b_total.astype(np.float64) / float(max(1, state.total_rays))
+        if check_matrix and state.prev_f is not None:
+            if np.all(np.abs(curr_f - state.prev_f) < tol) and np.all(np.abs(curr_b - state.prev_b) < tol):
+                done = True
+        if check_matrix:
+            state.prev_f = curr_f.copy()
+            state.prev_b = curr_b.copy()
+    elif tol_mode == "stderr":
+        if check_matrix and sum_f is not None and sumsq_f is not None and sum_b is not None and sumsq_b is not None:
+            se_f = _summary_to_stderr(sum_f, sumsq_f, state.iters_done)
+            se_b = _summary_to_stderr(sum_b, sumsq_b, state.iters_done)
+            if np.all(se_f[state.recv_idx] <= tol) and np.all(se_b[state.recv_idx] <= tol):
+                done = True
+    else:
+        raise ValueError(f"Unknown tol_mode: {tol_mode}")
+
+    return done
+
+
+def _run_matrix_gpu_serial(
+    indices: List[int],
+    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
+    emitters: List[PreparedEmitter],
+    prepared_solver: PreparedSolver,
+    scene,
+    d_scene,
+    result: Dict[str, Dict[str, float]],
+    stats_result: Optional[Dict[str, Dict[str, float]]],
+    ws: _MatrixGpuWorkspace,
+    *,
+    samples: int,
+    rays: int,
+    seed: int,
+    gpu_raygen: bool,
+    cuda_async: bool,
+    flip_faces: bool,
+    reciprocity: bool,
+    tol: float,
+    tol_mode: str,
+    min_iters: int,
+    convergence_interval: int,
+    max_iters: int,
+    return_stats: bool,
+    areas: Optional[List[float]],
+    use_bvh: bool,
+) -> None:
+    allow_chunking = _matrix_can_chunk_iterations(cuda_async=cuda_async, gpu_raygen=gpu_raygen)
+    interval = convergence_interval if allow_chunking else 1
+    needs_variance = tol_mode == "stderr"
+
+    for idx_emit in indices:
+        state = _build_matrix_gpu_state(
+            idx_emit,
+            meshes,
+            emitters,
+            prepared_solver,
+            samples=samples,
+            rays=rays,
+            flip_faces=flip_faces,
+            reciprocity=reciprocity,
+        )
+        if state is None:
+            name_e, _, _ = meshes[idx_emit]
+            msg = f"({idx_emit+1}/{len(meshes)}) [{name_e}] 0 iter, 0 rays -> 0.000s  (BVH={'builtin' if use_bvh else 'off'}, device=gpu)"
+            _log(msg)
+            _rhino_log(msg)
+            continue
+
+        _reset_matrix_gpu_workspace(ws)
+
+        while True:
+            state.pending_chunk = _iterations_to_next_checkpoint(
+                state.iters_done,
+                min_iters=min_iters,
+                interval=interval,
+                max_iters=max_iters,
+                needs_variance=needs_variance,
+            )
+            if state.pending_chunk <= 0:
+                break
+
+            _enqueue_matrix_gpu_chunk(
+                ws,
+                state,
+                scene,
+                d_scene,
+                rays=rays,
+                seed=seed,
+                gpu_raygen=gpu_raygen,
+                cuda_async=cuda_async,
+            )
+            _enqueue_matrix_gpu_summary_copy(ws)
+
+            state.iters_done += state.pending_chunk
+            state.total_rays += state.pending_chunk * state.n_rays_once
+
+            hits_f_total, hits_b_total, sum_f, sumsq_f, sum_b, sumsq_b = _read_matrix_gpu_summary(ws)
+            if _evaluate_matrix_gpu_state(
+                state,
+                hits_f_total=hits_f_total,
+                hits_b_total=hits_b_total,
+                sum_f=sum_f,
+                sumsq_f=sumsq_f,
+                sum_b=sum_b,
+                sumsq_b=sumsq_b,
+                tol=tol,
+                tol_mode=tol_mode,
+                min_iters=min_iters,
+                convergence_interval=interval,
+                max_iters=max_iters,
+            ):
+                _finalize_matrix_gpu_state(
+                    state,
+                    meshes,
+                    result,
+                    stats_result,
+                    hits_f_total=hits_f_total,
+                    hits_b_total=hits_b_total,
+                    sum_f=sum_f,
+                    sumsq_f=sumsq_f,
+                    sum_b=sum_b,
+                    sumsq_b=sumsq_b,
+                    reciprocity=reciprocity,
+                    areas=areas,
+                    return_stats=return_stats,
+                    use_bvh=use_bvh,
+                )
+                break
+
+
+def _run_matrix_gpu_batched_group(
+    indices: List[int],
+    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
+    emitters: List[PreparedEmitter],
+    prepared_solver: PreparedSolver,
+    scene,
+    d_scene,
+    result: Dict[str, Dict[str, float]],
+    stats_result: Optional[Dict[str, Dict[str, float]]],
+    workspaces: List[_MatrixGpuWorkspace],
+    *,
+    samples: int,
+    rays: int,
+    seed: int,
+    gpu_raygen: bool,
+    cuda_async: bool,
+    flip_faces: bool,
+    reciprocity: bool,
+    tol: float,
+    tol_mode: str,
+    min_iters: int,
+    convergence_interval: int,
+    max_iters: int,
+    return_stats: bool,
+    areas: Optional[List[float]],
+    use_bvh: bool,
+) -> None:
+    queue = list(indices)
+    active: List[Optional[_MatrixGpuEmitterState]] = [None] * len(workspaces)
+    needs_variance = tol_mode == "stderr"
+
+    while queue or any(state is not None for state in active):
+        for slot, ws in enumerate(workspaces):
+            if active[slot] is not None:
+                continue
+            while queue:
+                idx_emit = queue.pop(0)
+                state = _build_matrix_gpu_state(
+                    idx_emit,
+                    meshes,
+                    emitters,
+                    prepared_solver,
+                    samples=samples,
+                    rays=rays,
+                    flip_faces=flip_faces,
+                    reciprocity=reciprocity,
+                )
+                if state is None:
+                    name_e, _, _ = meshes[idx_emit]
+                    msg = f"({idx_emit+1}/{len(meshes)}) [{name_e}] 0 iter, 0 rays -> 0.000s  (BVH={'builtin' if use_bvh else 'off'}, device=gpu)"
+                    _log(msg)
+                    _rhino_log(msg)
+                    continue
+                _reset_matrix_gpu_workspace(ws)
+                active[slot] = state
+                break
+
+        if not any(state is not None for state in active):
+            break
+
+        for slot, state in enumerate(active):
+            if state is None:
+                continue
+            state.pending_chunk = _iterations_to_next_checkpoint(
+                state.iters_done,
+                min_iters=min_iters,
+                interval=convergence_interval,
+                max_iters=max_iters,
+                needs_variance=needs_variance,
+            )
+            if state.pending_chunk <= 0:
+                state.pending_chunk = 1
+            _enqueue_matrix_gpu_chunk(
+                workspaces[slot],
+                state,
+                scene,
+                d_scene,
+                rays=rays,
+                seed=seed,
+                gpu_raygen=gpu_raygen,
+                cuda_async=cuda_async,
+            )
+            _enqueue_matrix_gpu_summary_copy(workspaces[slot])
+
+        for slot, state in enumerate(active):
+            if state is None:
+                continue
+            state.iters_done += state.pending_chunk
+            state.total_rays += state.pending_chunk * state.n_rays_once
+
+            hits_f_total, hits_b_total, sum_f, sumsq_f, sum_b, sumsq_b = _read_matrix_gpu_summary(workspaces[slot])
+            if _evaluate_matrix_gpu_state(
+                state,
+                hits_f_total=hits_f_total,
+                hits_b_total=hits_b_total,
+                sum_f=sum_f,
+                sumsq_f=sumsq_f,
+                sum_b=sum_b,
+                sumsq_b=sumsq_b,
+                tol=tol,
+                tol_mode=tol_mode,
+                min_iters=min_iters,
+                convergence_interval=convergence_interval,
+                max_iters=max_iters,
+            ):
+                _finalize_matrix_gpu_state(
+                    state,
+                    meshes,
+                    result,
+                    stats_result,
+                    hits_f_total=hits_f_total,
+                    hits_b_total=hits_b_total,
+                    sum_f=sum_f,
+                    sumsq_f=sumsq_f,
+                    sum_b=sum_b,
+                    sumsq_b=sumsq_b,
+                    reciprocity=reciprocity,
+                    areas=areas,
+                    return_stats=return_stats,
+                    use_bvh=use_bvh,
+                )
+                active[slot] = None
+
+
+def _run_view_factor_matrix_gpu(
+    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
+    emitters: List[PreparedEmitter],
+    prepared_solver: PreparedSolver,
+    scene,
+    d_scene,
+    result: Dict[str, Dict[str, float]],
+    stats_result: Optional[Dict[str, Dict[str, float]]],
+    *,
+    samples: int,
+    rays: int,
+    seed: int,
+    gpu_raygen: bool,
+    cuda_async: bool,
+    flip_faces: bool,
+    reciprocity: bool,
+    tol: float,
+    tol_mode: str,
+    min_iters: int,
+    convergence_interval: int,
+    max_iters: int,
+    return_stats: bool,
+    areas: Optional[List[float]],
+    use_bvh: bool,
+) -> None:
+    n_surf = len(meshes)
+    ray_counts = [emitter.n_cells * rays for emitter in emitters]
+    max_rays = max(ray_counts) if ray_counts else 1
+    track_stats = _matrix_stats_required(tol_mode, return_stats)
+    serial_ws = _create_matrix_gpu_workspace(
+        max_rays,
+        n_surf,
+        cuda_async=cuda_async,
+        gpu_raygen=gpu_raygen,
+        track_stats=track_stats,
+    )
+
+    batch_enabled = _matrix_can_batch_emitters(cuda_async=cuda_async, gpu_raygen=gpu_raygen)
+    batch_cap = max(1, min(max_rays, _GPU_SMALL_EMITTER_RAY_CAP))
+    batch_workspaces: Optional[List[_MatrixGpuWorkspace]] = None
+
+    idx_emit = 0
+    while idx_emit < len(meshes):
+        if batch_enabled and ray_counts[idx_emit] <= batch_cap:
+            group: List[int] = []
+            while idx_emit < len(meshes) and ray_counts[idx_emit] <= batch_cap:
+                group.append(idx_emit)
+                idx_emit += 1
+
+            if len(group) > 1:
+                if batch_workspaces is None:
+                    batch_workspaces = [
+                        _create_matrix_gpu_workspace(
+                            batch_cap,
+                            n_surf,
+                            cuda_async=True,
+                            gpu_raygen=True,
+                            track_stats=track_stats,
+                        )
+                        for _ in range(min(_GPU_BATCH_STREAMS, len(group)))
+                    ]
+                _run_matrix_gpu_batched_group(
+                    group,
+                    meshes,
+                    emitters,
+                    prepared_solver,
+                    scene,
+                    d_scene,
+                    result,
+                    stats_result,
+                    batch_workspaces,
+                    samples=samples,
+                    rays=rays,
+                    seed=seed,
+                    gpu_raygen=gpu_raygen,
+                    cuda_async=cuda_async,
+                    flip_faces=flip_faces,
+                    reciprocity=reciprocity,
+                    tol=tol,
+                    tol_mode=tol_mode,
+                    min_iters=min_iters,
+                    convergence_interval=convergence_interval,
+                    max_iters=max_iters,
+                    return_stats=return_stats,
+                    areas=areas,
+                    use_bvh=use_bvh,
+                )
+                continue
+
+            _run_matrix_gpu_serial(
+                group,
+                meshes,
+                emitters,
+                prepared_solver,
+                scene,
+                d_scene,
+                result,
+                stats_result,
+                serial_ws,
+                samples=samples,
+                rays=rays,
+                seed=seed,
+                gpu_raygen=gpu_raygen,
+                cuda_async=cuda_async,
+                flip_faces=flip_faces,
+                reciprocity=reciprocity,
+                tol=tol,
+                tol_mode=tol_mode,
+                min_iters=min_iters,
+                convergence_interval=convergence_interval,
+                max_iters=max_iters,
+                return_stats=return_stats,
+                areas=areas,
+                use_bvh=use_bvh,
+            )
+            continue
+
+        _run_matrix_gpu_serial(
+            [idx_emit],
+            meshes,
+            emitters,
+            prepared_solver,
+            scene,
+            d_scene,
+            result,
+            stats_result,
+            serial_ws,
+            samples=samples,
+            rays=rays,
+            seed=seed,
+            gpu_raygen=gpu_raygen,
+            cuda_async=cuda_async,
+            flip_faces=flip_faces,
+            reciprocity=reciprocity,
+            tol=tol,
+            tol_mode=tol_mode,
+            min_iters=min_iters,
+            convergence_interval=convergence_interval,
+            max_iters=max_iters,
+            return_stats=return_stats,
+            areas=areas,
+            use_bvh=use_bvh,
+        )
+        idx_emit += 1
 
 def _matrix_skip(idx_emit: int, reciprocity: bool) -> Tuple[int, int]:
     return (idx_emit, idx_emit + 1) if reciprocity else (idx_emit, 0)
@@ -290,9 +1127,7 @@ def view_factor_matrix_and_sky(
     else:
         sky_vf = {name: {"Sky": 0.0} for name, _, _ in meshes}
 
-    d_scene = None
-    if use_gpu:
-        d_scene = prepared_solver.get_device_scene(use_bvh=use_bvh)
+    d_scene = prepared_solver.get_device_scene(use_bvh=use_bvh) if use_gpu else None
 
     n_surf = len(meshes)
     for idx_emit, (name_e, _, _) in enumerate(meshes):
@@ -385,7 +1220,7 @@ def view_factor_matrix_and_sky(
                         emitter_dev.halton_tri, emitter_dev.halton_u, emitter_dev.halton_v,
                         emitter_dev.halton_r1, emitter_dev.halton_r2, emitter_dev.cdf,
                         emitter_dev.tri_a, emitter_dev.tri_e1, emitter_dev.tri_e2,
-                        emitter_dev.tri_u, emitter_dev.tri_v, emitter_dev.tri_n,
+                        emitter_dev.tri_u, emitter_dev.tri_v, emitter_dev.tri_n, emitter_dev.tri_origin_eps,
                         rays, d_orig, d_dirs, cp_grid, cp_dims,
                     )
                 else:
@@ -742,9 +1577,37 @@ def view_factor_matrix(
     areas = [emitter.total_area for emitter in emitters] if reciprocity else None
     scene = prepared_solver.get_scene(use_bvh=use_bvh)
 
-    d_scene = None
+    d_scene = prepared_solver.get_device_scene(use_bvh=use_bvh) if use_gpu else None
     if use_gpu:
-        d_scene = prepared_solver.get_device_scene(use_bvh=use_bvh)
+        _run_view_factor_matrix_gpu(
+            meshes,
+            emitters,
+            prepared_solver,
+            scene,
+            d_scene,
+            result,
+            stats_result,
+            samples=samples,
+            rays=rays,
+            seed=seed,
+            gpu_raygen=gpu_raygen,
+            cuda_async=cuda_async,
+            flip_faces=flip_faces,
+            reciprocity=reciprocity,
+            tol=tol,
+            tol_mode=tol_mode,
+            min_iters=min_iters,
+            convergence_interval=convergence_interval,
+            max_iters=max_iters,
+            return_stats=return_stats,
+            areas=areas,
+            use_bvh=use_bvh,
+        )
+        if enforce_reciprocity_rowsum:
+            _enforce_reciprocity_and_rowsum(result, meshes, areas)
+        if return_stats:
+            return result, stats_result or {}
+        return result
 
     n_surf = len(meshes)
     for idx_emit, (name_e, _, _) in enumerate(meshes):
@@ -811,7 +1674,7 @@ def view_factor_matrix(
                         emitter_dev.halton_tri, emitter_dev.halton_u, emitter_dev.halton_v,
                         emitter_dev.halton_r1, emitter_dev.halton_r2, emitter_dev.cdf,
                         emitter_dev.tri_a, emitter_dev.tri_e1, emitter_dev.tri_e2,
-                        emitter_dev.tri_u, emitter_dev.tri_v, emitter_dev.tri_n,
+                        emitter_dev.tri_u, emitter_dev.tri_v, emitter_dev.tri_n, emitter_dev.tri_origin_eps,
                         rays, d_orig, d_dirs, cp_grid, cp_dims,
                     )
                 else:
@@ -1039,7 +1902,7 @@ def view_factor_to_tregenza_sky(
                         emitter_dev.halton_tri, emitter_dev.halton_u, emitter_dev.halton_v,
                         emitter_dev.halton_r1, emitter_dev.halton_r2, emitter_dev.cdf,
                         emitter_dev.tri_a, emitter_dev.tri_e1, emitter_dev.tri_e2,
-                        emitter_dev.tri_u, emitter_dev.tri_v, emitter_dev.tri_n,
+                        emitter_dev.tri_u, emitter_dev.tri_v, emitter_dev.tri_n, emitter_dev.tri_origin_eps,
                         rays, d_orig, d_dirs, cp_grid, cp_dims,
                     )
                 else:

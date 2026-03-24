@@ -34,6 +34,7 @@ class PreparedEmitter:
     tri_u: np.ndarray
     tri_v: np.ndarray
     tri_n: np.ndarray
+    tri_origin_eps: np.ndarray
     cdf: np.ndarray
     total_area: float
     g: int
@@ -82,6 +83,7 @@ class PreparedDeviceEmitter:
     tri_u: Any
     tri_v: Any
     tri_n: Any
+    tri_origin_eps: Any
 
 
 def _safe_normalize(v: np.ndarray) -> np.ndarray:
@@ -114,6 +116,14 @@ def _triangle_frames(tri_n: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         tri_u[i] = u
         tri_v[i] = np.cross(n, u).astype(np.float32)
     return tri_u, tri_v
+
+
+def _triangle_origin_eps(tri_e1: np.ndarray, tri_e2: np.ndarray) -> np.ndarray:
+    edge_a = np.linalg.norm(tri_e1, axis=1)
+    edge_b = np.linalg.norm(tri_e2, axis=1)
+    edge_c = np.linalg.norm(tri_e2 - tri_e1, axis=1)
+    scale = np.maximum(edge_a, np.maximum(edge_b, edge_c))
+    return np.maximum(scale * 1.0e-6, 1.0e-8).astype(np.float32, copy=False)
 
 
 def prepare_scene(
@@ -213,6 +223,7 @@ def prepare_emitters(
         twice_area = np.linalg.norm(tri_n_raw, axis=1)
         tri_n = _safe_normalize(tri_n_raw).astype(np.float32, copy=False)
         tri_u, tri_v = _triangle_frames(tri_n)
+        tri_origin_eps = _triangle_origin_eps(tri_e1, tri_e2)
 
         areas = 0.5 * twice_area
         total_area = float(areas.sum())
@@ -242,6 +253,7 @@ def prepare_emitters(
                 tri_u=tri_u.astype(np.float32, copy=False),
                 tri_v=tri_v.astype(np.float32, copy=False),
                 tri_n=tri_n,
+                tri_origin_eps=tri_origin_eps,
                 cdf=cdf,
                 total_area=total_area,
                 g=g,
@@ -342,6 +354,7 @@ class PreparedSolver:
                 tri_u=cuda.to_device(host_emitter.tri_u),
                 tri_v=cuda.to_device(host_emitter.tri_v),
                 tri_n=cuda.to_device(host_emitter.tri_n),
+                tri_origin_eps=cuda.to_device(host_emitter.tri_origin_eps),
             )
             self._device_emitter_cache[key] = emitter
         return emitter

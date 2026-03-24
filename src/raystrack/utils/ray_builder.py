@@ -38,6 +38,7 @@ def build_rays(
     tri_u,
     tri_v,
     tri_n,
+    tri_origin_eps,
     rays_per_cell,
     orig,
     dire,
@@ -83,10 +84,11 @@ def build_rays(
         dx = x * tri_u[tri, 0] + y * tri_v[tri, 0] + z * tri_n[tri, 0]
         dy = x * tri_u[tri, 1] + y * tri_v[tri, 1] + z * tri_n[tri, 1]
         dz = x * tri_u[tri, 2] + y * tri_v[tri, 2] + z * tri_n[tri, 2]
+        eps = tri_origin_eps[tri]
 
-        orig[idx, 0] = px
-        orig[idx, 1] = py
-        orig[idx, 2] = pz
+        orig[idx, 0] = px + eps * tri_n[tri, 0]
+        orig[idx, 1] = py + eps * tri_n[tri, 1]
+        orig[idx, 2] = pz + eps * tri_n[tri, 2]
         dire[idx, 0] = dx
         dire[idx, 1] = dy
         dire[idx, 2] = dz

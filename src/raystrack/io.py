@@ -12,6 +12,14 @@ MeshTuple = Tuple[str, np.ndarray, np.ndarray]
 Meshes = List[MeshTuple]
 
 
+def _strip_direction_suffix(name: str) -> str:
+    if name.endswith("_front"):
+        return name[:-6]
+    if name.endswith("_back"):
+        return name[:-5]
+    return name
+
+
 def merge_vf_matrix(vf_matrix: VFInput) -> VFDict:
     """
     Normalize and deep-merge input to a single dict of the form:
@@ -58,11 +66,15 @@ def merge_vf_matrix(vf_matrix: VFInput) -> VFDict:
     raise TypeError("vf_matrix must be a dict or list of dicts")
 
 
-def save_vf_matrix_json(vf_matrix: VFInput, save_path: str) -> str:
+def save_vf_matrix_json(vf_matrix: VFInput, save_path: str, *, strip_dir: bool = False) -> str:
     """Save a view-factor matrix to a JSON file.
 
     Receivers with value exactly 0.0 are omitted from the saved JSON to reduce
     file size and noise.
+
+    When ``strip_dir=True``, receiver keys ending in ``_front`` or ``_back``
+    are written without that suffix and values for the same base receiver are
+    summed per sender row before serialization.
     """
     flat = merge_vf_matrix(vf_matrix)
 
@@ -89,7 +101,13 @@ def save_vf_matrix_json(vf_matrix: VFInput, save_path: str) -> str:
     # Drop zero-valued receivers
     cleaned: VFDict = {}
     for sender, row in flat.items():
-        pruned = {k: float(v) for k, v in row.items() if float(v) != 0.0}
+        pruned: Dict[str, float] = {}
+        for key, value in row.items():
+            value_f = float(value)
+            if value_f == 0.0:
+                continue
+            out_key = _strip_direction_suffix(key) if strip_dir else key
+            pruned[out_key] = pruned.get(out_key, 0.0) + value_f
         cleaned[sender] = pruned
 
     with path.open("w", encoding="utf-8") as fh:
