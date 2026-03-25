@@ -53,8 +53,22 @@ from .utils.ray_builder import build_rays
 
 _LOG_PROC = None
 _BVH_AUTO_THRESHOLD = 512
-_GPU_BATCH_STREAMS = 4
-_GPU_SMALL_EMITTER_RAY_CAP = 262144
+
+
+def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return max(minimum, int(default))
+    try:
+        return max(minimum, int(raw))
+    except Exception:
+        return max(minimum, int(default))
+
+
+_GPU_BATCH_TARGET_ACTIVE_RAYS = _env_int("RAYSTRACK_GPU_BATCH_TARGET_ACTIVE_RAYS", 524288)
+_GPU_BATCH_STREAMS_MAX = _env_int("RAYSTRACK_GPU_BATCH_STREAMS_MAX", 32)
+_GPU_BATCH_MEMORY_BUDGET_MB = _env_int("RAYSTRACK_GPU_BATCH_MEMORY_BUDGET_MB", 512)
+_GPU_SMALL_EMITTER_RAY_CAP = _env_int("RAYSTRACK_GPU_SMALL_EMITTER_RAY_CAP", 1048576)
 
 
 def _open_log_console() -> None:
@@ -260,11 +274,77 @@ def _matrix_stats_required(tol_mode: str, return_stats: bool) -> bool:
 
 
 def _matrix_can_batch_emitters(*, cuda_async: bool, gpu_raygen: bool) -> bool:
-    return bool(cuda_async and gpu_raygen and _GPU_BATCH_STREAMS > 1)
+    return bool(cuda_async and gpu_raygen and _GPU_BATCH_STREAMS_MAX > 1)
 
 
 def _matrix_can_chunk_iterations(*, cuda_async: bool, gpu_raygen: bool) -> bool:
     return not (cuda_async and not gpu_raygen)
+
+
+def _estimate_matrix_gpu_workspace_bytes(
+    ray_cap: int,
+    n_surf: int,
+    *,
+    track_stats: bool,
+    gpu_raygen: bool,
+    cuda_async: bool,
+) -> int:
+    f32 = np.dtype(np.float32).itemsize
+    f64 = np.dtype(np.float64).itemsize
+    i32 = np.dtype(np.int32).itemsize
+    i64 = np.dtype(np.int64).itemsize
+    u8 = np.dtype(np.uint8).itemsize
+
+    ray_bytes = int(ray_cap) * ((2 * 3 * f32) + i32 + u8)
+    surf_device_bytes = int(n_surf) * (4 * i64)
+    surf_host_bytes = int(n_surf) * (2 * i64)
+    if track_stats:
+        surf_device_bytes += int(n_surf) * (4 * f64)
+        surf_host_bytes += int(n_surf) * (4 * f64)
+
+    if cuda_async and not gpu_raygen:
+        ray_bytes += int(ray_cap) * (2 * 3 * f32)
+
+    return ray_bytes + surf_device_bytes + surf_host_bytes
+
+
+def _matrix_batch_slot_count(
+    ray_cap: int,
+    group_size: int,
+    n_surf: int,
+    *,
+    track_stats: bool,
+    gpu_raygen: bool,
+    cuda_async: bool,
+) -> int:
+    if group_size <= 1:
+        return 1
+
+    ray_cap_i = max(1, int(ray_cap))
+    desired = max(2, (_GPU_BATCH_TARGET_ACTIVE_RAYS + ray_cap_i - 1) // ray_cap_i)
+    device = cuda.get_current_device()
+    sm_count = int(getattr(device, "MULTIPROCESSOR_COUNT", _GPU_BATCH_STREAMS_MAX))
+    if ray_cap_i < 65536:
+        workload_cap = min(_GPU_BATCH_STREAMS_MAX, 4)
+    elif ray_cap_i < 262144:
+        workload_cap = min(_GPU_BATCH_STREAMS_MAX, 8)
+    else:
+        workload_cap = _GPU_BATCH_STREAMS_MAX
+    hard_cap = min(int(group_size), max(2, sm_count), workload_cap)
+
+    ws_bytes = max(
+        1,
+        _estimate_matrix_gpu_workspace_bytes(
+            ray_cap_i,
+            n_surf,
+            track_stats=track_stats,
+            gpu_raygen=gpu_raygen,
+            cuda_async=cuda_async,
+        ),
+    )
+    budget_bytes = _GPU_BATCH_MEMORY_BUDGET_MB * 1024 * 1024
+    budget_cap = max(1, budget_bytes // ws_bytes)
+    return max(1, min(hard_cap, desired, int(budget_cap)))
 
 
 def _iterations_to_next_checkpoint(
@@ -928,56 +1008,67 @@ def _run_view_factor_matrix_gpu(
     )
 
     batch_enabled = _matrix_can_batch_emitters(cuda_async=cuda_async, gpu_raygen=gpu_raygen)
-    batch_cap = max(1, min(max_rays, _GPU_SMALL_EMITTER_RAY_CAP))
+    small_emitter_cap = max(1, min(max_rays, _GPU_SMALL_EMITTER_RAY_CAP))
     batch_workspaces: Optional[List[_MatrixGpuWorkspace]] = None
 
     idx_emit = 0
     while idx_emit < len(meshes):
-        if batch_enabled and ray_counts[idx_emit] <= batch_cap:
+        if batch_enabled and ray_counts[idx_emit] <= small_emitter_cap:
             group: List[int] = []
-            while idx_emit < len(meshes) and ray_counts[idx_emit] <= batch_cap:
+            while idx_emit < len(meshes) and ray_counts[idx_emit] <= small_emitter_cap:
                 group.append(idx_emit)
                 idx_emit += 1
 
             if len(group) > 1:
-                if batch_workspaces is None:
-                    batch_workspaces = [
-                        _create_matrix_gpu_workspace(
-                            batch_cap,
-                            n_surf,
-                            cuda_async=True,
-                            gpu_raygen=True,
-                            track_stats=track_stats,
-                        )
-                        for _ in range(min(_GPU_BATCH_STREAMS, len(group)))
-                    ]
-                _run_matrix_gpu_batched_group(
-                    group,
-                    meshes,
-                    emitters,
-                    prepared_solver,
-                    scene,
-                    d_scene,
-                    result,
-                    stats_result,
-                    batch_workspaces,
-                    samples=samples,
-                    rays=rays,
-                    seed=seed,
+                group_ray_cap = max(ray_counts[g] for g in group)
+                batch_slots = _matrix_batch_slot_count(
+                    group_ray_cap,
+                    len(group),
+                    n_surf,
+                    track_stats=track_stats,
                     gpu_raygen=gpu_raygen,
                     cuda_async=cuda_async,
-                    flip_faces=flip_faces,
-                    reciprocity=reciprocity,
-                    tol=tol,
-                    tol_mode=tol_mode,
-                    min_iters=min_iters,
-                    convergence_interval=convergence_interval,
-                    max_iters=max_iters,
-                    return_stats=return_stats,
-                    areas=areas,
-                    use_bvh=use_bvh,
                 )
-                continue
+                if batch_slots > 1:
+                    if batch_workspaces is None or len(batch_workspaces) < batch_slots or batch_workspaces[0].ray_cap < group_ray_cap:
+                        batch_workspaces = [
+                            _create_matrix_gpu_workspace(
+                                group_ray_cap,
+                                n_surf,
+                                cuda_async=True,
+                                gpu_raygen=True,
+                                track_stats=track_stats,
+                            )
+                            for _ in range(batch_slots)
+                        ]
+                    active_workspaces = batch_workspaces[:batch_slots]
+                    _run_matrix_gpu_batched_group(
+                        group,
+                        meshes,
+                        emitters,
+                        prepared_solver,
+                        scene,
+                        d_scene,
+                        result,
+                        stats_result,
+                        active_workspaces,
+                        samples=samples,
+                        rays=rays,
+                        seed=seed,
+                        gpu_raygen=gpu_raygen,
+                        cuda_async=cuda_async,
+                        flip_faces=flip_faces,
+                        reciprocity=reciprocity,
+                        tol=tol,
+                        tol_mode=tol_mode,
+                        min_iters=min_iters,
+                        convergence_interval=convergence_interval,
+                        max_iters=max_iters,
+                        return_stats=return_stats,
+                        areas=areas,
+                        use_bvh=use_bvh,
+                    )
+                    continue
 
             _run_matrix_gpu_serial(
                 group,
