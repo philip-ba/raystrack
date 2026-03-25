@@ -52,7 +52,9 @@ def _aabb_tmin_dev(o0, o1, o2, inv0, inv1, inv2, bmin0, bmin1, bmin2, bmax0, bma
 
 
 @cuda.jit(device=True, inline=True)
-def _skip_surface(surface_id, emit_sid, min_sid):
+def _skip_surface(surface_id, surf_active, emit_sid, min_sid):
+    if surf_active[surface_id] == 0:
+        return True
     if surface_id < min_sid:
         return True
     return surface_id == emit_sid
@@ -77,7 +79,7 @@ def _binary_search_cdf(cdf, x):
 
 
 @cuda.jit
-def kernel_trace_firsthit(orig, dirs, v0, e1, e2, norm, sid, emit_sid, min_sid, hit_sid, hit_front):
+def kernel_trace_firsthit(orig, dirs, v0, e1, e2, norm, sid, surf_active, emit_sid, min_sid, hit_sid, hit_front):
     k = cuda.grid(1)
     if k >= orig.shape[0]:
         return
@@ -95,7 +97,7 @@ def kernel_trace_firsthit(orig, dirs, v0, e1, e2, norm, sid, emit_sid, min_sid, 
 
     for i in range(v0.shape[0]):
         surf = sid[i]
-        if _skip_surface(surf, emit_sid, min_sid):
+        if _skip_surface(surf, surf_active, emit_sid, min_sid):
             continue
 
         px = d1 * e2[i, 2] - d2 * e2[i, 1]
@@ -139,6 +141,7 @@ def kernel_trace_bvh_firsthit(
     e2,
     norm,
     sid,
+    surf_active,
     bb_min,
     bb_max,
     left,
@@ -206,7 +209,7 @@ def kernel_trace_bvh_firsthit(
             for t in range(cnt[node]):
                 tri = start[node] + t
                 surf = sid[tri]
-                if _skip_surface(surf, emit_sid, min_sid):
+                if _skip_surface(surf, surf_active, emit_sid, min_sid):
                     continue
 
                 px = d1 * e2[tri, 2] - d2 * e2[tri, 1]
@@ -292,7 +295,7 @@ def kernel_trace_bvh_firsthit(
 
 
 @cuda.jit
-def kernel_trace_combined(orig, dirs, v0, e1, e2, norm, sid, emit_sid, matrix_min_sid, hit_sid, hit_front, any_hitmask):
+def kernel_trace_combined(orig, dirs, v0, e1, e2, norm, sid, surf_active, emit_sid, matrix_min_sid, hit_sid, hit_front, any_hitmask):
     k = cuda.grid(1)
     if k >= orig.shape[0]:
         return
@@ -311,7 +314,7 @@ def kernel_trace_combined(orig, dirs, v0, e1, e2, norm, sid, emit_sid, matrix_mi
 
     for i in range(v0.shape[0]):
         surf = sid[i]
-        if surf == emit_sid:
+        if surf == emit_sid or surf_active[surf] == 0:
             continue
 
         px = d1 * e2[i, 2] - d2 * e2[i, 1]
@@ -362,6 +365,7 @@ def kernel_trace_bvh_combined(
     e2,
     norm,
     sid,
+    surf_active,
     bb_min,
     bb_max,
     left,
@@ -432,7 +436,7 @@ def kernel_trace_bvh_combined(
             for t in range(cnt[node]):
                 tri = start[node] + t
                 surf = sid[tri]
-                if surf == emit_sid:
+                if surf == emit_sid or surf_active[surf] == 0:
                     continue
 
                 px = d1 * e2[tri, 2] - d2 * e2[tri, 1]
@@ -796,7 +800,7 @@ def kernel_count_upward_misses(dirs, any_hitmask, count):
 
 
 @cuda.jit
-def kernel_trace_tregenza(orig, dirs, v0, e1, e2, sid, emit_sid, min_sid, counts):
+def kernel_trace_tregenza(orig, dirs, v0, e1, e2, sid, surf_active, emit_sid, min_sid, counts):
     shared_counts = cuda.shared.array(TREGENZA_BINS, nb.int32)
     tid = cuda.threadIdx.x
     block_size = cuda.blockDim.x
@@ -821,7 +825,7 @@ def kernel_trace_tregenza(orig, dirs, v0, e1, e2, sid, emit_sid, min_sid, counts
         hit_any = 0
         for tri in range(v0.shape[0]):
             surf = sid[tri]
-            if _skip_surface(surf, emit_sid, min_sid):
+            if _skip_surface(surf, surf_active, emit_sid, min_sid):
                 continue
 
             px = d1 * e2[tri, 2] - d2 * e2[tri, 1]
@@ -867,7 +871,7 @@ def kernel_trace_tregenza(orig, dirs, v0, e1, e2, sid, emit_sid, min_sid, counts
 
 
 @cuda.jit
-def kernel_trace_count_upward(orig, dirs, v0, e1, e2, sid, emit_sid, min_sid, count):
+def kernel_trace_count_upward(orig, dirs, v0, e1, e2, sid, surf_active, emit_sid, min_sid, count):
     shared_total = cuda.shared.array(1, nb.int32)
     tid = cuda.threadIdx.x
     idx = cuda.grid(1)
@@ -889,7 +893,7 @@ def kernel_trace_count_upward(orig, dirs, v0, e1, e2, sid, emit_sid, min_sid, co
         hit_any = 0
         for tri in range(v0.shape[0]):
             surf = sid[tri]
-            if _skip_surface(surf, emit_sid, min_sid):
+            if _skip_surface(surf, surf_active, emit_sid, min_sid):
                 continue
 
             px = d1 * e2[tri, 2] - d2 * e2[tri, 1]
@@ -936,6 +940,7 @@ def kernel_trace_bvh_tregenza(
     e1,
     e2,
     sid,
+    surf_active,
     bb_min,
     bb_max,
     left,
@@ -1003,7 +1008,7 @@ def kernel_trace_bvh_tregenza(
                     for t in range(cnt[node]):
                         tri = start[node] + t
                         surf = sid[tri]
-                        if _skip_surface(surf, emit_sid, min_sid):
+                        if _skip_surface(surf, surf_active, emit_sid, min_sid):
                             continue
 
                         px = d1 * e2[tri, 2] - d2 * e2[tri, 1]
@@ -1106,6 +1111,7 @@ def kernel_trace_bvh_count_upward(
     e1,
     e2,
     sid,
+    surf_active,
     bb_min,
     bb_max,
     left,
@@ -1170,7 +1176,7 @@ def kernel_trace_bvh_count_upward(
                     for t in range(cnt[node]):
                         tri = start[node] + t
                         surf = sid[tri]
-                        if _skip_surface(surf, emit_sid, min_sid):
+                        if _skip_surface(surf, surf_active, emit_sid, min_sid):
                             continue
 
                         px = d1 * e2[tri, 2] - d2 * e2[tri, 1]

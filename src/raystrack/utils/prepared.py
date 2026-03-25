@@ -35,6 +35,10 @@ class PreparedEmitter:
     tri_v: np.ndarray
     tri_n: np.ndarray
     tri_origin_eps: np.ndarray
+    plane_origin: np.ndarray
+    plane_normal: np.ndarray
+    plane_tol: float
+    plane_is_planar: bool
     cdf: np.ndarray
     total_area: float
     g: int
@@ -124,6 +128,43 @@ def _triangle_origin_eps(tri_e1: np.ndarray, tri_e2: np.ndarray) -> np.ndarray:
     edge_c = np.linalg.norm(tri_e2 - tri_e1, axis=1)
     scale = np.maximum(edge_a, np.maximum(edge_b, edge_c))
     return np.maximum(scale * 1.0e-6, 1.0e-8).astype(np.float32, copy=False)
+
+
+def _emitter_plane(
+    tri_a: np.ndarray,
+    tri_e1: np.ndarray,
+    tri_e2: np.ndarray,
+    tri_n: np.ndarray,
+    tri_origin_eps: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, float, bool]:
+    plane_origin = np.zeros(3, dtype=np.float32)
+    plane_normal = np.zeros(3, dtype=np.float32)
+    plane_tol = float(max(1.0e-7, np.max(tri_origin_eps) if tri_origin_eps.size else 0.0))
+
+    if tri_a.shape[0] == 0:
+        return plane_origin, plane_normal, plane_tol, False
+
+    plane_origin = np.asarray(tri_a[0], dtype=np.float32)
+    plane_normal = np.asarray(tri_n[0], dtype=np.float32)
+    normal_len = float(np.linalg.norm(plane_normal))
+    if normal_len <= 1.0e-12:
+        return plane_origin, plane_normal, plane_tol, False
+
+    plane_normal = (plane_normal / normal_len).astype(np.float32, copy=False)
+    normal_align = tri_n @ plane_normal
+    if np.any(normal_align < (1.0 - 1.0e-4)):
+        return plane_origin, plane_normal, plane_tol, False
+
+    offsets = (
+        np.abs((tri_a - plane_origin) @ plane_normal),
+        np.abs((tri_a + tri_e1 - plane_origin) @ plane_normal),
+        np.abs((tri_a + tri_e2 - plane_origin) @ plane_normal),
+    )
+    max_dev = max(float(np.max(arr)) if arr.size else 0.0 for arr in offsets)
+    if max_dev > plane_tol:
+        return plane_origin, plane_normal, plane_tol, False
+
+    return plane_origin, plane_normal, plane_tol, True
 
 
 def prepare_scene(
@@ -224,6 +265,13 @@ def prepare_emitters(
         tri_n = _safe_normalize(tri_n_raw).astype(np.float32, copy=False)
         tri_u, tri_v = _triangle_frames(tri_n)
         tri_origin_eps = _triangle_origin_eps(tri_e1, tri_e2)
+        plane_origin, plane_normal, plane_tol, plane_is_planar = _emitter_plane(
+            tri_a,
+            tri_e1,
+            tri_e2,
+            tri_n,
+            tri_origin_eps,
+        )
 
         areas = 0.5 * twice_area
         total_area = float(areas.sum())
@@ -254,6 +302,10 @@ def prepare_emitters(
                 tri_v=tri_v.astype(np.float32, copy=False),
                 tri_n=tri_n,
                 tri_origin_eps=tri_origin_eps,
+                plane_origin=plane_origin,
+                plane_normal=plane_normal,
+                plane_tol=plane_tol,
+                plane_is_planar=plane_is_planar,
                 cdf=cdf,
                 total_area=total_area,
                 g=g,
@@ -283,6 +335,7 @@ class PreparedSolver:
         self._emitter_cache: Dict[Tuple[int, int, bool], List[PreparedEmitter]] = {}
         self._device_scene_cache: Dict[Tuple[int, bool], PreparedDeviceScene] = {}
         self._device_emitter_cache: Dict[Tuple[int, int, int, int, bool], PreparedDeviceEmitter] = {}
+        self._mesh_bounds_cache: Optional[Tuple[np.ndarray, np.ndarray]] = None
 
     def get_scene(self, *, use_bvh: bool) -> PreparedScene:
         key = bool(use_bvh)
@@ -302,6 +355,24 @@ class PreparedSolver:
 
     def get_emitter(self, index: int, *, samples: int, rays: int, flip_faces: bool) -> PreparedEmitter:
         return self.get_emitters(samples=samples, rays=rays, flip_faces=flip_faces)[int(index)]
+
+    def get_mesh_bounds(self) -> Tuple[np.ndarray, np.ndarray]:
+        bounds = self._mesh_bounds_cache
+        if bounds is None:
+            n_mesh = len(self.meshes)
+            centers = np.zeros((n_mesh, 3), dtype=np.float32)
+            extents = np.zeros((n_mesh, 3), dtype=np.float32)
+            for idx, (_, V, _) in enumerate(self.meshes):
+                if V.size == 0:
+                    continue
+                v = np.asarray(V, dtype=np.float32)
+                vmin = np.min(v, axis=0)
+                vmax = np.max(v, axis=0)
+                centers[idx] = 0.5 * (vmin + vmax)
+                extents[idx] = 0.5 * (vmax - vmin)
+            bounds = (centers, extents)
+            self._mesh_bounds_cache = bounds
+        return bounds
 
     def clear_device_cache(self) -> None:
         self._device_scene_cache.clear()

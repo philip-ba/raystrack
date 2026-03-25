@@ -43,7 +43,9 @@ def _aabb_tmin(o0, o1, o2, inv0, inv1, inv2, bmin0, bmin1, bmin2, bmax0, bmax1, 
 
 
 @nb.njit(inline="always", cache=True)
-def _skip_surface(surface_id: int, emit_sid: int, min_sid: int) -> bool:
+def _skip_surface(surface_id: int, surf_active, emit_sid: int, min_sid: int) -> bool:
+    if surf_active[surface_id] == 0:
+        return True
     if surface_id < min_sid:
         return True
     return surface_id == emit_sid
@@ -58,6 +60,7 @@ def trace_cpu_firsthit(
     e2,
     norm,
     sid,
+    surf_active,
     emit_sid,
     min_sid,
     out_hit_sid,
@@ -79,7 +82,7 @@ def trace_cpu_firsthit(
 
         for i in range(n_tri):
             surf = sid[i]
-            if _skip_surface(surf, emit_sid, min_sid):
+            if _skip_surface(surf, surf_active, emit_sid, min_sid):
                 continue
 
             px = d1 * e2[i, 2] - d2 * e2[i, 1]
@@ -123,6 +126,7 @@ def trace_cpu_bvh_firsthit(
     e2,
     norm,
     sid,
+    surf_active,
     bb_min,
     bb_max,
     left,
@@ -188,7 +192,7 @@ def trace_cpu_bvh_firsthit(
                 for t in range(count[node]):
                     tri = start[node] + t
                     surf = sid[tri]
-                    if _skip_surface(surf, emit_sid, min_sid):
+                    if _skip_surface(surf, surf_active, emit_sid, min_sid):
                         continue
 
                     px = d1 * e2[tri, 2] - d2 * e2[tri, 1]
@@ -282,6 +286,7 @@ def trace_cpu_combined(
     e2,
     norm,
     sid,
+    surf_active,
     emit_sid,
     matrix_min_sid,
     out_hit_sid,
@@ -305,7 +310,7 @@ def trace_cpu_combined(
 
         for i in range(n_tri):
             surf = sid[i]
-            if surf == emit_sid:
+            if surf == emit_sid or surf_active[surf] == 0:
                 continue
 
             px = d1 * e2[i, 2] - d2 * e2[i, 1]
@@ -356,6 +361,7 @@ def trace_cpu_bvh_combined(
     e2,
     norm,
     sid,
+    surf_active,
     bb_min,
     bb_max,
     left,
@@ -424,7 +430,7 @@ def trace_cpu_bvh_combined(
                 for t in range(count[node]):
                     tri = start[node] + t
                     surf = sid[tri]
-                    if surf == emit_sid:
+                    if surf == emit_sid or surf_active[surf] == 0:
                         continue
 
                     px = d1 * e2[tri, 2] - d2 * e2[tri, 1]
@@ -532,7 +538,7 @@ def reduce_first_hits(hit_sid, front_flag, out_front, out_back):
 
 
 @nb.njit(parallel=True, fastmath=True, cache=True)
-def trace_cpu_hitmask(orig, dirs, v0, e1, e2, sid, emit_sid, min_sid, out_hitmask):
+def trace_cpu_hitmask(orig, dirs, v0, e1, e2, sid, surf_active, emit_sid, min_sid, out_hitmask):
     n_rays = orig.shape[0]
     n_tri = v0.shape[0]
     for k in nb.prange(n_rays):
@@ -546,7 +552,7 @@ def trace_cpu_hitmask(orig, dirs, v0, e1, e2, sid, emit_sid, min_sid, out_hitmas
         out_hitmask[k] = 0
         for i in range(n_tri):
             surf = sid[i]
-            if _skip_surface(surf, emit_sid, min_sid):
+            if _skip_surface(surf, surf_active, emit_sid, min_sid):
                 continue
 
             px = d1 * e2[i, 2] - d2 * e2[i, 1]
@@ -585,6 +591,7 @@ def trace_cpu_bvh_hitmask(
     e1,
     e2,
     sid,
+    surf_active,
     bb_min,
     bb_max,
     left,
@@ -642,7 +649,7 @@ def trace_cpu_bvh_hitmask(
                 for t in range(count[node]):
                     tri = start[node] + t
                     surf = sid[tri]
-                    if _skip_surface(surf, emit_sid, min_sid):
+                    if _skip_surface(surf, surf_active, emit_sid, min_sid):
                         continue
 
                     px = d1 * e2[tri, 2] - d2 * e2[tri, 1]
