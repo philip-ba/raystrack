@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,9 +7,10 @@ name = "raystrack"
 version = "1.0.0"
 description = "Lightweight Monte-Carlo view-factor solver with CPU, CUDA and BVH paths"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 authors = [{ name = "Philip Balizki", email = "philip@metis.earth" }]
-requires-python = ">=3.9"
+requires-python = ">=3.9,<3.13"
 
 dependencies = [
     "numpy>=1.24,<3.0",
@@ -19,7 +20,6 @@ dependencies = [
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering",
 ]
