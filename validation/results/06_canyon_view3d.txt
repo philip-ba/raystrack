@@ -1,0 +1,41 @@
+case: 06_canyon_view3d
+description: Street canyon comparison between Raystrack and saved View3D reference.
+
+raystrack:
+  samples: 8
+  rays: 512
+  min_iters: 40
+  max_iters: 500
+  raw_json: C:\Users\Philip\Desktop\raystrack\validation\results\06_canyon_view3d_raystrack_raw.json
+  base_json: C:\Users\Philip\Desktop\raystrack\validation\results\06_canyon_view3d_raystrack_base.json
+
+convergence:
+  tol_mode: stderr
+  tol: 0.0001000000
+  min_iters: 40
+  max_iters: 500
+  converged_before_max: True
+  iterations:
+    east_side_0: 40
+    west_side_0: 40
+    east_side_1: 40
+    west_side_1: 40
+    east_side_2: 40
+    west_side_2: 40
+    east_side_3: 40
+    west_side_3: 40
+    east_side_4: 40
+    west_side_4: 40
+    road: 40
+
+view3d:
+  status: loaded_reference
+  base_json: C:\Users\Philip\Desktop\raystrack\validation\view3d_reference\canyon_view3d_base.json
+
+comparison:
+  max_abs_diff: 0.0000614593
+  max_pair: road -> east_side_2
+  raystrack_at_max_pair: 0.0261794593
+  view3d_at_max_pair:    0.0261180000
+  tolerance: 0.0001000000
+  passed: True

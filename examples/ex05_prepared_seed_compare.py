@@ -69,7 +69,6 @@ def main() -> None:
 
     # Keep this example output focused on the final seed comparison table.
     raystrack_main._log = lambda msg: None
-    raystrack_main._rhino_log = lambda msg: None
 
     here = Path(__file__).resolve().parent
     geom = here / "street_canyon.json"

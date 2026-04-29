@@ -36,9 +36,7 @@ Requirements: Python 3.9+, `numpy`, `numba`. CUDA acceleration is enabled
 automatically when `numba.cuda` detects a compatible GPU.
 
 ### Rhino / Grasshopper status
-The Rhino 8 Grasshopper installers are not yet published. The scripts,
-user objects, and automated installers referenced in the repository are still
-being packaged. Follow this README or the issue tracker for updates when a
+The Rhino 8 Grasshopper installers are not yet published. Follow this README or the issue tracker for updates when a
 tested Rhino workflow becomes available.
 
 ## Examples

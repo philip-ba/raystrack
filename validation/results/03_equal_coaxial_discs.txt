@@ -1,0 +1,28 @@
+case: 03_equal_coaxial_discs
+description: Two identical coaxial discs with R/H=1, receiver approximated by triangles.
+formula: F = 1 + (1 - sqrt(1+4r^2))/(2r^2)
+
+analytical: 0.3819660113
+raystrack:  0.3820414824
+abs_diff:   0.0000754711
+tolerance:  0.0001000000
+passed:     True
+
+settings:
+  R: 1.0
+  H: 1.0
+  segments: 256
+  samples: 16
+  rays: 512
+  min_iters: 40
+  max_iters: 500
+
+convergence:
+  tol_mode: stderr
+  tol: 0.0001000000
+  min_iters: 40
+  max_iters: 500
+  converged_before_max: True
+  iterations:
+    disc_1: 68
+    disc_2: 58

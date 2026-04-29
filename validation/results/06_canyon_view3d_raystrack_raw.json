@@ -1,0 +1,94 @@
+{
+  "east_side_0": {
+    "road_front": 0.3079392421392747,
+    "west_side_0_front": 0.1333075629340278,
+    "west_side_1_front": 0.09579852068865741,
+    "west_side_2_front": 0.043464717158564814,
+    "west_side_3_front": 0.017641119309413582,
+    "west_side_4_front": 0.007706705729166667
+  },
+  "east_side_1": {
+    "road_front": 0.12161488474151234,
+    "west_side_0_front": 0.0957495418595679,
+    "west_side_1_front": 0.13330454885223766,
+    "west_side_2_front": 0.09579008125964507,
+    "west_side_3_front": 0.04347948615933642,
+    "west_side_4_front": 0.01763569396219136
+  },
+  "east_side_2": {
+    "road_front": 0.052233133198302466,
+    "west_side_0_front": 0.04344587914737654,
+    "west_side_1_front": 0.09575843340084876,
+    "west_side_2_front": 0.1333012333622685,
+    "west_side_3_front": 0.09579173900462963,
+    "west_side_4_front": 0.04347345799575617
+  },
+  "east_side_3": {
+    "road_front": 0.025236756124614197,
+    "west_side_0_front": 0.017682261525848765,
+    "west_side_1_front": 0.04344874252507716,
+    "west_side_2_front": 0.09577244888117284,
+    "west_side_3_front": 0.1333006305459105,
+    "west_side_4_front": 0.09577169536072531
+  },
+  "east_side_4": {
+    "road_front": 0.013643391927083333,
+    "west_side_0_front": 0.007677469135802469,
+    "west_side_1_front": 0.01768798828125,
+    "west_side_2_front": 0.04343306929976852,
+    "west_side_3_front": 0.09577455873842593,
+    "west_side_4_front": 0.1333059051890432
+  },
+  "road": {
+    "east_side_0_front": 0.1539270525147929,
+    "east_side_1_front": 0.06077880859375,
+    "east_side_2_front": 0.02617945925018491,
+    "east_side_3_front": 0.012586388221153846,
+    "east_side_4_front": 0.006792887851331361,
+    "west_side_0_front": 0.1539026384522929,
+    "west_side_1_front": 0.06081037352071006,
+    "west_side_2_front": 0.02612911427514793,
+    "west_side_3_front": 0.012629871255547338,
+    "west_side_4_front": 0.006801266642011835
+  },
+  "west_side_0": {
+    "east_side_0_front": 0.13334584177276235,
+    "east_side_1_front": 0.09575361086998457,
+    "east_side_2_front": 0.04347586926118827,
+    "east_side_3_front": 0.017634186921296296,
+    "east_side_4_front": 0.007713336709104938,
+    "road_front": 0.3079053337191358
+  },
+  "west_side_1": {
+    "east_side_0_front": 0.09578902633101852,
+    "east_side_1_front": 0.13334252628279322,
+    "east_side_2_front": 0.09576265311535494,
+    "east_side_3_front": 0.04347074532214506,
+    "east_side_4_front": 0.017629364390432098,
+    "road_front": 0.12158866222993828
+  },
+  "west_side_2": {
+    "east_side_0_front": 0.043475718557098766,
+    "east_side_1_front": 0.09579746576003087,
+    "east_side_2_front": 0.1333574459876543,
+    "east_side_3_front": 0.0957713939525463,
+    "east_side_4_front": 0.04345612702546296,
+    "road_front": 0.052232228973765435
+  },
+  "west_side_3": {
+    "east_side_0_front": 0.017684220679012347,
+    "east_side_1_front": 0.04345959321952161,
+    "east_side_2_front": 0.09580680941358025,
+    "east_side_3_front": 0.13333921079282407,
+    "east_side_4_front": 0.09576009114583334,
+    "road_front": 0.025221535011574075
+  },
+  "west_side_4": {
+    "east_side_0_front": 0.007678976176697531,
+    "east_side_1_front": 0.017679850260416668,
+    "east_side_2_front": 0.04346110026041667,
+    "east_side_3_front": 0.09578646436149692,
+    "east_side_4_front": 0.13335382908950616,
+    "road_front": 0.013635856722608026
+  }
+}

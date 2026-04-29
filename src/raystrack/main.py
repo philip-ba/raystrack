@@ -10,13 +10,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from numba import cuda
 
-try:  # pragma: no cover
-    import Rhino  # type: ignore
-    _HAVE_RHINO = True
-except Exception:  # pragma: no cover
-    Rhino = None  # type: ignore
-    _HAVE_RHINO = False
-
 from .params import MatrixParams, SkyParams
 from .utils.cpu_trace import (
     bin_tregenza_cpu,
@@ -107,15 +100,6 @@ def _log(msg: str) -> None:
         except Exception:
             pass
     print(msg)
-
-
-def _rhino_log(msg: str) -> None:
-    if not _HAVE_RHINO:
-        return
-    try:
-        Rhino.RhinoApp.WriteLine(msg)  # type: ignore[union-attr]
-    except Exception:
-        pass
 
 
 def _compute_cuda_launch(n_items: int, preferred_threads: Optional[int], min_blocks: int = 4) -> Tuple[int, int]:
@@ -756,7 +740,6 @@ def _finalize_matrix_gpu_state(
         f"(BVH={'builtin' if use_bvh else 'off'}, device=gpu)"
     )
     _log(msg)
-    _rhino_log(msg)
 
 
 def _evaluate_matrix_gpu_state(
@@ -850,7 +833,6 @@ def _run_matrix_gpu_serial(
             name_e, _, _ = meshes[idx_emit]
             msg = f"({idx_emit+1}/{len(meshes)}) [{name_e}] 0 iter, 0 rays -> 0.000s  (BVH={'builtin' if use_bvh else 'off'}, device=gpu)"
             _log(msg)
-            _rhino_log(msg)
             continue
 
         _reset_matrix_gpu_workspace(ws)
@@ -967,7 +949,6 @@ def _run_matrix_gpu_batched_group(
                     name_e, _, _ = meshes[idx_emit]
                     msg = f"({idx_emit+1}/{len(meshes)}) [{name_e}] 0 iter, 0 rays -> 0.000s  (BVH={'builtin' if use_bvh else 'off'}, device=gpu)"
                     _log(msg)
-                    _rhino_log(msg)
                     continue
                 _reset_matrix_gpu_workspace(ws)
                 _load_matrix_gpu_active_mask(ws, state.surf_active)
@@ -1701,7 +1682,6 @@ def view_factor_matrix_and_sky(
             f"BVH={'builtin' if use_bvh else 'off'}, device={'gpu' if use_gpu else 'cpu'})"
         )
         _log(msg)
-        _rhino_log(msg)
 
     return vf_scene, sky_vf
 
@@ -1783,7 +1763,6 @@ def view_factor_matrix(
         if not receivers:
             msg = f"({idx_emit+1}/{len(meshes)}) [{name_e}] 0 iter, 0 rays -> 0.000s  (BVH={'builtin' if use_bvh else 'off'}, device={'gpu' if use_gpu else 'cpu'})"
             _log(msg)
-            _rhino_log(msg)
             continue
 
         emit_sid, min_sid = _matrix_skip(idx_emit, reciprocity)
@@ -1958,7 +1937,6 @@ def view_factor_matrix(
 
         msg = f"({idx_emit+1}/{len(meshes)}) [{name_e}] {iters_done} iter, {total_rays:,} rays -> {time.time() - t_tot:0.3f}s  (BVH={'builtin' if use_bvh else 'off'}, device={'gpu' if use_gpu else 'cpu'})"
         _log(msg)
-        _rhino_log(msg)
 
     if enforce_reciprocity_rowsum:
         _enforce_reciprocity_and_rowsum(result, meshes, areas)
@@ -2203,7 +2181,6 @@ def view_factor_to_tregenza_sky(
 
         msg = f"({idx_emit+1}/{len(meshes)}) [{name_e}] {iters_done} iter, {total_rays:,} rays -> {time.time() - t0:0.3f}s  (BVH={'builtin' if use_bvh else 'off'}, device={'gpu' if use_gpu else 'cpu'})"
         _log(msg)
-        _rhino_log(msg)
 
     return result
 

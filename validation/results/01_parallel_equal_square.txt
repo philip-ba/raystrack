@@ -1,0 +1,27 @@
+case: 01_parallel_equal_square
+description: Two identical parallel square plates with W/H=1.
+formula: F = [ln(x^4/(1+2w^2)) + 4 w (x atan(w/x)-atan(w))] / (pi w^2)
+
+analytical: 0.1998248957
+raystrack:  0.1998815373
+abs_diff:   0.0000566416
+tolerance:  0.0001000000
+passed:     True
+
+settings:
+  W: 1.0
+  H: 1.0
+  samples: 32
+  rays: 1024
+  min_iters: 40
+  max_iters: 500
+
+convergence:
+  tol_mode: stderr
+  tol: 0.0001000000
+  min_iters: 40
+  max_iters: 500
+  converged_before_max: True
+  iterations:
+    plate_1: 97
+    plate_2: 93

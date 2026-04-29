@@ -1,0 +1,27 @@
+case: 05_perpendicular_square_rectangle
+description: Square plate to adjacent perpendicular rectangle with H/W=1.
+formula: F = 1/4 + [h atan(1/h) - h1 atan(1/h1) - 1/4 ln(h2)]/pi
+
+analytical: 0.2000437761
+raystrack:  0.2001169464
+abs_diff:   0.0000731703
+tolerance:  0.0001000000
+passed:     True
+
+settings:
+  W: 1.0
+  H: 1.0
+  samples: 32
+  rays: 512
+  min_iters: 40
+  max_iters: 500
+
+convergence:
+  tol_mode: stderr
+  tol: 0.0001000000
+  min_iters: 40
+  max_iters: 500
+  converged_before_max: True
+  iterations:
+    square: 144
+    adjacent_rectangle: 118

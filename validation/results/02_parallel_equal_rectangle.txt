@@ -1,0 +1,28 @@
+case: 02_parallel_equal_rectangle
+description: Two identical parallel rectangular plates with W1/H=2 and W2/H=1.
+formula: PDF equal-rectangles closed form with x=W1/H, y=W2/H.
+
+analytical: 0.2858753849
+raystrack:  0.2859215095
+abs_diff:   0.0000461247
+tolerance:  0.0001000000
+passed:     True
+
+settings:
+  W1: 2.0
+  W2: 1.0
+  H: 1.0
+  samples: 16
+  rays: 512
+  min_iters: 40
+  max_iters: 500
+
+convergence:
+  tol_mode: stderr
+  tol: 0.0001000000
+  min_iters: 40
+  max_iters: 500
+  converged_before_max: True
+  iterations:
+    plate_1: 266
+    plate_2: 270
