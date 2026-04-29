@@ -104,4 +104,4 @@ vf_sky = view_factor_to_tregenza_sky(meshes, params=sky_params)
 ```
 
 ## License
-GPL-3.0-only - see `LICENSE`.
+MIT - see `LICENSE`.
