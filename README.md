@@ -15,12 +15,17 @@ BVH. The repository also ships a pure-Python API you can use outside Rhino.
 - Efficient Monte-Carlo view factors: front/back hits, optional reciprocity
 - CPU and optional CUDA GPU backends (Numba)
 - Optional BVH acceleration structures
-- Python API plus Grasshopper components (Rhino installer coming soon)
+- Python API plus Rhino 8 / Grasshopper components
 
 ## Installation
 
-### Python package
+### Python package (PyPI)
 Use Raystrack as a normal Python package outside Rhino or Grasshopper.
+
+Install the latest published release from PyPI:
+```
+pip install raystrack
+```
 
 From a local clone of this repository:
 ```
@@ -35,9 +40,12 @@ pip install /path/to/raystrack
 Requirements: Python 3.9+, `numpy`, `numba`. CUDA acceleration is enabled
 automatically when `numba.cuda` detects a compatible GPU.
 
-### Rhino / Grasshopper status
-The Rhino 8 Grasshopper installers are not yet published. Follow this README or the issue tracker for updates when a
-tested Rhino workflow becomes available.
+### Rhino 8 / Grasshopper
+Raystrack is also available through the Rhino 8 Package Manager for use in
+Rhino and Grasshopper.
+
+In Rhino 8, run the `PackageManager` command, search for `Raystrack`, install
+the package, and restart Rhino if prompted.
 
 ## Examples
 
