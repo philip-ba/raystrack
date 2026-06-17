@@ -103,5 +103,18 @@ vf_scene = view_factor_matrix(meshes, params=matrix_params)
 vf_sky = view_factor_to_tregenza_sky(meshes, params=sky_params)
 ```
 
+## Author
+Philip Balizki <philip@metis.earth>
+
+## Citation / Attribution
+If you use Raystrack in a project, publication, report, tool, or derived work,
+please cite it as:
+
+Balizki, P. (2026). Raystrack (Version 1.0.2) [Computer software]. GitHub. https://github.com/philip-ba/raystrack
+
+For informal attribution:
+
+Raystrack by Philip Balizki
+
 ## License
 MIT - see `LICENSE`.
