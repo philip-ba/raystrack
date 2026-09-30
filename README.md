@@ -92,6 +92,48 @@ save_vf_matrix_json(res, "vf_matrix.json", strip_dir=True)
 This collapses receiver keys like `"B_front"` and `"B_back"` into `"B"` and
 sums both values per sender row.
 
+## Saving a complete run
+
+The `.raystrack` directory format keeps meshes, parameters, and results together.
+It stores numeric data in NumPy chunks, so you can load one mesh or a few sender
+rows without reading the entire run. The JSON functions above remain available.
+
+```text
+case.raystrack/
+  manifest.json                 # format version, names, parameters, metadata
+  geometry/000000/vertices-0000.npy
+  geometry/000000/faces-0000.npy
+  results/scene/000000/offsets.npy
+  results/scene/000000/columns.npy
+  results/scene/000000/values.npy
+  results/sky/...
+  results/rest/...
+```
+
+Each result chunk stores up to 256 sender rows with indexed receiver names.
+Explicit zero values and directional names are preserved. Chunks are uncompressed
+for fast selective reads; the default target size is 4 MiB.
+
+```python
+from raystrack import open_store, save_run
+
+save_run("case.raystrack", meshes=meshes, matrix_params=params, scene=res)
+
+with open_store("case.raystrack") as store:
+    one_mesh = store.load_meshes(names=["A"])
+    one_row = store.load_result("scene", senders=["A"])
+    saved_params = store.matrix_params
+```
+
+For incremental writes, open a new store with `mode="w"`, call `add_mesh` for
+each mesh and `append_result_rows(kind, rows)` as rows become available, then
+call `finalize()`. The result kind is `"scene"`, `"sky"`, or `"rest"`.
+`flush()` commits buffered rows earlier;
+closing a store without finalizing leaves it open for `mode="a"`. Readers see
+only committed chunks. `iter_mesh_chunks(name, "vertices" | "faces")` and
+`iter_result_rows(kind, senders=...)` provide streaming reads. New stores refuse
+to overwrite existing directories.
+
 ## Parameter presets
 Raystrack uses two parameter containers to keep configuration consistent:
 - `MatrixParams`: controls the scene-to-scene view-factor solve (sampling, BVH,
@@ -110,6 +152,63 @@ sky_params = SkyParams(samples=32, rays=256)
 vf_scene = view_factor_matrix(meshes, params=matrix_params)
 vf_sky = view_factor_to_tregenza_sky(meshes, params=sky_params)
 ```
+
+## Tracing performance
+
+For a mesh with area `A`, one iteration emits approximately
+`max(4, ceil(sqrt(A * samples))) ** 2 * rays` rays. This work repeats until the
+convergence tolerance is met or `max_iters` is reached. A very small `tol` can
+therefore dominate runtime even on a scene with few triangles.
+
+The [outside workflow example](examples/ex03_workflow.py) uses a moderate
+preview budget. Its matrix and sky sampling settings match, so the workflow
+shares traced rays. Keep those settings aligned when changing the example;
+otherwise the two results are computed in separate passes. Use `bvh="auto"`
+for mixed scene sizes, and benchmark `device="cpu"` against `device="gpu"` on
+your hardware. For repeated solves of the same geometry, pass one shared
+`PreparedSolver` to reuse prepared geometry and ray tables. The first CPU run
+may also spend time compiling Numba kernels.
+
+For receivers that are rarely hit, a zero replicate variance can make the
+adaptive solver stop before it has sampled enough rays. Set
+`min_total_rays` per emitter when those receivers matter; `max_iters` remains
+the hard cap. For example, `MatrixParams(min_total_rays=262_144)` prevents an
+earlier convergence stop until that many rays have been traced. The same option
+is available on `SkyParams`. This is a sampling floor, not a confidence bound.
+
+For a selected rare receiver, direct area-pair sampling uses each sample to
+connect a point on the sender to a point on that receiver. It weights the
+sample by the cosine and distance geometry term and checks the connection for
+occluders:
+
+```python
+from raystrack import view_factor_targeted
+
+row = view_factor_targeted(meshes, "sender", "small_receiver",
+                           samples=8192, seed=7)
+# {'small_receiver_front': ..., 'small_receiver_back': ...} when visible
+```
+
+This CPU method estimates one pair, so it is most useful for a few important
+small receivers. It does not fill the rest of the matrix or the sky result.
+Its visibility check scans scene triangles for each connection, so large
+meshes can favor the built-in BVH cosine tracer.
+It defaults to independently shifted Halton points; use `sequence="random"`
+to compare ordinary pseudorandom sampling. In a reproducible 512-sample
+small-receiver benchmark, the cosine tracer returned zero for all 20 seeds,
+while targeted shifted Halton sampling returned a nonzero estimate for all
+20 and reduced mean absolute error from `1.39e-5` to `5.50e-8`. Run
+`python validation/benchmark_sampling.py` to reproduce the comparison.
+
+When both surfaces face each other, `MatrixParams(reciprocity_mode="bidirectional")`
+traces both directions and averages the two front-side exchanged-area estimates.
+The default `"shortcut"` traces one direction and applies area reciprocity.
+Back-side hits remain direct estimates in bidirectional mode. At the same
+1,024-ray pair budget in the benchmark, bidirectional sampling reduced pair
+RMSE from about `0.00935` to `0.00874`; its benefit depends on geometry and
+sample budget. The shared scene and sky workflow uses one ray set for both
+results in either mode. Its CUDA path also reuses ray and result buffers across
+emitters.
 
 ## Author
 Philip Balizki <philip@metis.earth>

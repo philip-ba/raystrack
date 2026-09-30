@@ -33,11 +33,20 @@ class MatrixParams:
         - "stderr": stop when per-iteration replicate standard error is <= tol.
     min_iters : int
         Minimum number of Monte-Carlo iterations before a convergence check.
+    min_total_rays : int
+        Minimum rays per emitter before adaptive convergence can stop. This
+        protects rare or unseen receivers from a premature zero-variance stop.
+        ``max_iters`` still caps the solve; zero disables this guard.
     convergence_interval : int
         Check convergence every N iterations. Values > 1 mainly help the CUDA
         path by reducing host-side convergence work.
     reciprocity : bool
         Also compute inverse view factors via reciprocity.
+    reciprocity_mode : {"shortcut", "bidirectional"}
+        ``shortcut`` traces each pair from one emitter and fills the inverse
+        front-side factor by area reciprocity. ``bidirectional`` traces both
+        emitters and averages their front-to-front exchange before applying
+        reciprocity. It can reduce sampling noise but traces more rays.
     enforce_reciprocity_rowsum : bool
         After computation, enforce reciprocity and make each row sum to 1 using
         symmetric diagonal scaling.
@@ -59,6 +68,8 @@ class MatrixParams:
     reciprocity: bool = True
     enforce_reciprocity_rowsum: bool = False
     flip_faces: bool = False
+    min_total_rays: int = 0
+    reciprocity_mode: str = "shortcut"
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -97,6 +108,9 @@ class SkyParams:
         - "stderr": stop when per-iteration replicate standard error is <= tol.
     min_iters : int
         Minimum number of Monte-Carlo iterations before a convergence check.
+    min_total_rays : int
+        Minimum rays per emitter before adaptive convergence can stop;
+        ``max_iters`` still caps the solve. Zero disables this guard.
     convergence_interval : int
         Check convergence every N iterations. Values > 1 mainly help the CUDA
         path by reducing host-side convergence work.
@@ -117,6 +131,7 @@ class SkyParams:
     min_iters: int = 5
     convergence_interval: int = 1
     discrete: bool = False
+    min_total_rays: int = 0
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)

@@ -155,7 +155,7 @@ def view_factor_outside_workflow(
     if enforce_scene:
         row_targets = [max(0.0, 1.0 - sky_totals.get(name, 0.0)) for name in mesh_names]
         _enforce_reciprocity_and_rowsum(vf_scene, meshes, None, row_targets=row_targets)
-    elif reciprocity_flag:
+    elif reciprocity_flag and matrix_params.reciprocity_mode == "shortcut":
         _enforce_reciprocity_only(vf_scene, meshes)
 
     for emitter in mesh_names:

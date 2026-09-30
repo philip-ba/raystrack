@@ -4,8 +4,10 @@ from .main import (
     view_factor_to_tregenza_sky,
 )
 from .api import view_factor_outside_workflow
+from .targeted import view_factor_targeted
 from .params import MatrixParams, SkyParams
 from .utils.prepared import PreparedSolver
+from .store import RunStore, open_store, save_run
 from .io import (
     save_vf_matrix_json,
     load_vf_matrix_json,
@@ -19,9 +21,13 @@ __all__ = [
     "view_factor",
     "view_factor_to_tregenza_sky",
     "view_factor_outside_workflow",
+    "view_factor_targeted",
     "MatrixParams",
     "SkyParams",
     "PreparedSolver",
+    "RunStore",
+    "open_store",
+    "save_run",
     "save_vf_matrix_json",
     "load_vf_matrix_json",
     "save_meshes_json",

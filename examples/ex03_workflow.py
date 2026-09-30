@@ -9,8 +9,8 @@ Demonstrates the high-level view_factor_outside_workflow:
   emitter without redistributing energy to specific geometry.
 
 Outputs:
-- Saves the scene VF to vf_scene_workflow.json
-- Saves the sky VF to sky_vf_workflow.json
+- Saves geometry, parameters, scene, sky and residual VFs to
+  vf_workflow.raystrack/
 - Prints the residual remainder per emitter
 
 Configuration overview:
@@ -23,7 +23,7 @@ Configuration overview:
   stays on `"stderr"` to keep statistical error checks comparable.
 - The sky pass always returns a single merged `"Sky"` receiver.
 - The workflow returns `vf_scene`, `sky_vf`, and `rest_vf`, which are persisted
-  via `save_vf_matrix_json` for further analysis.
+  together with the inputs via `save_run` for further analysis.
 """
 import sys
 from pathlib import Path
@@ -38,8 +38,8 @@ def ensure_repo_on_path():
 
 def main():
     ensure_repo_on_path()
-    from raystrack.io import load_meshes_json, save_vf_matrix_json
-    from raystrack import view_factor_outside_workflow
+    from raystrack.io import load_meshes_json
+    from raystrack import save_run, view_factor_outside_workflow
     from raystrack.params import MatrixParams, SkyParams
 
     here = Path(__file__).resolve().parent
@@ -50,32 +50,33 @@ def main():
 
     meshes = load_meshes_json(str(geom))
 
-    # Reasonable defaults for a quick-yet-stable run
+    # Balanced preview settings for this 22-triangle scene. Increase the ray
+    # budget or tighten tol when validating smaller differences between VFs.
     matrix_params = MatrixParams(
-        samples=32,
-        rays=256,
+        samples=16,
+        rays=128,
         seed=7,
-        bvh="builtin",
+        bvh="auto",
         device="auto",
         cuda_async=True,
         gpu_raygen=True,
-        max_iters=500,
-        tol=1e-5,
+        max_iters=100,
+        tol=1e-4,
         tol_mode="stderr",  # matrix algorithm supports 'delta' and 'stderr'
         min_iters=5,
         enforce_reciprocity_rowsum=False, # True means that all surfaces get extra weighted vf to match rowsum = 1; False means there is a rest
         reciprocity=True,
     )
     sky_params = SkyParams(
-        samples=32,
-        rays=256,
+        samples=16,
+        rays=128,
         seed=7,
-        bvh="builtin",
+        bvh="auto",
         device="auto",
         cuda_async=True,
         gpu_raygen=True,
-        max_iters=500,
-        tol=1e-5,          # stderr target for merged sky
+        max_iters=100,
+        tol=1e-4,          # stderr target for merged sky
         tol_mode="stderr", # use true stderr convergence for sky
         min_iters=5,
         discrete=False,
@@ -98,14 +99,22 @@ def main():
         total = scene_sum + sky_total + resid
         print(f"{name:32s}  {scene_sum:>10.6f}   {sky_total:>10.6f}    {resid:+.6e}   {total:>10.6f}")
 
-    # Save results next to the example
-    out_scene = here / "vf_scene_workflow.json"
-    out_sky = here / "sky_vf_workflow.json"
-    save_vf_matrix_json(vf_scene, str(out_scene))
-    save_vf_matrix_json(sky_vf, str(out_sky))
-    print(f"Saved reconciled scene VF to: {out_scene}")
-    print(f"Saved sky VF to: {out_sky}")
-    print(rest_vf)
+    # Use a fresh output path; save_run protects an existing run from overwrite.
+    out = here / "vf_workflow.raystrack"
+    suffix = 1
+    while out.exists():
+        out = here / f"vf_workflow_{suffix:03d}.raystrack"
+        suffix += 1
+    saved = save_run(
+        out,
+        meshes=meshes,
+        matrix_params=matrix_params,
+        sky_params=sky_params,
+        scene=vf_scene,
+        sky=sky_vf,
+        rest=rest_vf,
+    )
+    print(f"Saved complete run to: {saved}")
 
 
 if __name__ == "__main__":

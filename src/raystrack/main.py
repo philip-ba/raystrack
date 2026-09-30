@@ -164,6 +164,46 @@ def _matrix_receivers(idx_emit: int, n_surf: int, reciprocity: bool) -> List[int
     return [j for j in range(n_surf) if j != idx_emit]
 
 
+def _matrix_reciprocity_mode(params: MatrixParams) -> Tuple[bool, bool]:
+    """Return (trace_upper_triangle_only, average_both_directions)."""
+    mode = params.reciprocity_mode
+    if mode not in ("shortcut", "bidirectional"):
+        raise ValueError("reciprocity_mode must be 'shortcut' or 'bidirectional'")
+    if mode == "bidirectional" and not params.reciprocity:
+        raise ValueError("bidirectional reciprocity requires reciprocity=True")
+    return bool(params.reciprocity and mode == "shortcut"), mode == "bidirectional"
+
+
+def _average_bidirectional_front_flux(
+    result: Dict[str, Dict[str, float]],
+    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
+    areas: List[float],
+) -> None:
+    """Symmetrize only front-to-front exchange; back hits have no reverse sample.
+
+    Both rays estimates have the same expected exchanged area. Their mean is
+    then divided by the respective emitting areas. Missing entries count as
+    sampled zeros, while unrelated back-side entries are kept intact.
+    """
+    for i, (name_i, _, _) in enumerate(meshes):
+        for j in range(i + 1, len(meshes)):
+            name_j = meshes[j][0]
+            if areas[i] <= 0.0 or areas[j] <= 0.0:
+                continue
+            key_ij = f"{name_j}_front"
+            key_ji = f"{name_i}_front"
+            exchange = 0.5 * (
+                areas[i] * result[name_i].get(key_ij, 0.0)
+                + areas[j] * result[name_j].get(key_ji, 0.0)
+            )
+            if exchange > 0.0:
+                result[name_i][key_ij] = exchange / areas[i]
+                result[name_j][key_ji] = exchange / areas[j]
+            else:
+                result[name_i].pop(key_ij, None)
+                result[name_j].pop(key_ji, None)
+
+
 def _build_emitter_surface_mask(
     idx_emit: int,
     emitter: PreparedEmitter,
@@ -214,8 +254,12 @@ def _matrix_active_receivers(
     return receivers, np.asarray(receivers, dtype=np.int32)
 
 
-def _convergence_checkpoint(iters_done: int, *, min_iters: int, interval: int, max_iters: int, needs_variance: bool = False) -> bool:
+def _convergence_checkpoint(iters_done: int, *, min_iters: int, interval: int, max_iters: int,
+                            needs_variance: bool = False, total_rays: int = 0,
+                            min_total_rays: int = 0) -> bool:
     if iters_done < max(1, int(min_iters)):
+        return False
+    if total_rays < min_total_rays:
         return False
     if needs_variance and iters_done <= 1:
         return False
@@ -754,6 +798,7 @@ def _evaluate_matrix_gpu_state(
     tol: float,
     tol_mode: str,
     min_iters: int,
+    min_total_rays: int,
     convergence_interval: int,
     max_iters: int,
 ) -> bool:
@@ -764,6 +809,8 @@ def _evaluate_matrix_gpu_state(
         interval=convergence_interval,
         max_iters=max_iters,
         needs_variance=(tol_mode == "stderr"),
+        total_rays=state.total_rays,
+        min_total_rays=min_total_rays,
     )
 
     if tol_mode == "delta":
@@ -808,6 +855,7 @@ def _run_matrix_gpu_serial(
     tol: float,
     tol_mode: str,
     min_iters: int,
+    min_total_rays: int,
     convergence_interval: int,
     max_iters: int,
     return_stats: bool,
@@ -876,6 +924,7 @@ def _run_matrix_gpu_serial(
                 tol=tol,
                 tol_mode=tol_mode,
                 min_iters=min_iters,
+                min_total_rays=min_total_rays,
                 convergence_interval=interval,
                 max_iters=max_iters,
             ):
@@ -919,6 +968,7 @@ def _run_matrix_gpu_batched_group(
     tol: float,
     tol_mode: str,
     min_iters: int,
+    min_total_rays: int,
     convergence_interval: int,
     max_iters: int,
     return_stats: bool,
@@ -1000,6 +1050,7 @@ def _run_matrix_gpu_batched_group(
                 tol=tol,
                 tol_mode=tol_mode,
                 min_iters=min_iters,
+                min_total_rays=min_total_rays,
                 convergence_interval=convergence_interval,
                 max_iters=max_iters,
             ):
@@ -1041,6 +1092,7 @@ def _run_view_factor_matrix_gpu(
     tol: float,
     tol_mode: str,
     min_iters: int,
+    min_total_rays: int,
     convergence_interval: int,
     max_iters: int,
     return_stats: bool,
@@ -1114,6 +1166,7 @@ def _run_view_factor_matrix_gpu(
                         tol=tol,
                         tol_mode=tol_mode,
                         min_iters=min_iters,
+                        min_total_rays=min_total_rays,
                         convergence_interval=convergence_interval,
                         max_iters=max_iters,
                         return_stats=return_stats,
@@ -1142,6 +1195,7 @@ def _run_view_factor_matrix_gpu(
                 tol=tol,
                 tol_mode=tol_mode,
                 min_iters=min_iters,
+                min_total_rays=min_total_rays,
                 convergence_interval=convergence_interval,
                 max_iters=max_iters,
                 return_stats=return_stats,
@@ -1170,6 +1224,7 @@ def _run_view_factor_matrix_gpu(
             tol=tol,
             tol_mode=tol_mode,
             min_iters=min_iters,
+            min_total_rays=min_total_rays,
             convergence_interval=convergence_interval,
             max_iters=max_iters,
             return_stats=return_stats,
@@ -1179,7 +1234,9 @@ def _run_view_factor_matrix_gpu(
         idx_emit += 1
 
 def _matrix_skip(idx_emit: int, reciprocity: bool) -> Tuple[int, int]:
-    return (idx_emit, idx_emit + 1) if reciprocity else (idx_emit, 0)
+    # Reciprocity limits which receiver rows are accumulated, not which
+    # surfaces block a ray. A lower-index surface may occlude a receiver.
+    return idx_emit, 0
 
 
 def outside_workflow_shareable(matrix_params: MatrixParams, sky_params: SkyParams) -> bool:
@@ -1240,6 +1297,8 @@ def view_factor_matrix_and_sky(
         raise TypeError("matrix_params must be a MatrixParams instance")
     if not isinstance(sky_params, SkyParams):
         raise TypeError("sky_params must be a SkyParams instance")
+    if matrix_params.min_total_rays < 0 or sky_params.min_total_rays < 0:
+        raise ValueError("min_total_rays must be nonnegative")
     if not outside_workflow_shareable(matrix_params, sky_params):
         raise ValueError("matrix_params and sky_params are not compatible for shared tracing")
 
@@ -1251,7 +1310,7 @@ def view_factor_matrix_and_sky(
     device = mp["device"]
     cuda_async = mp["cuda_async"]
     gpu_raygen = mp["gpu_raygen"]
-    reciprocity = mp["reciprocity"]
+    reciprocity, bidirectional = _matrix_reciprocity_mode(matrix_params)
     sky_discrete = sp["discrete"]
     matrix_interval = max(1, int(mp["convergence_interval"]))
     sky_interval = max(1, int(sp["convergence_interval"]))
@@ -1262,7 +1321,7 @@ def view_factor_matrix_and_sky(
     emitters = prepared_solver.get_emitters(samples=samples, rays=rays, flip_faces=False)
     bounds_center, bounds_extent = prepared_solver.get_mesh_bounds()
     scene = prepared_solver.get_scene(use_bvh=use_bvh)
-    areas = [emitter.total_area for emitter in emitters] if reciprocity else None
+    areas = [emitter.total_area for emitter in emitters] if (reciprocity or bidirectional) else None
 
     vf_scene: Dict[str, Dict[str, float]] = {name: {} for name, _, _ in meshes}
     if sky_discrete:
@@ -1274,6 +1333,31 @@ def view_factor_matrix_and_sky(
     d_scene = prepared_solver.get_device_scene(use_bvh=use_bvh) if use_gpu else None
 
     n_surf = len(meshes)
+    if use_gpu:
+        # Shared workflow buffers are sized once for the largest emitter.
+        ray_capacity = max((emitter.n_cells * rays for emitter in emitters), default=1)
+        gpu_orig = cuda.device_array((ray_capacity, 3), dtype=np.float32)
+        gpu_dirs = cuda.device_array((ray_capacity, 3), dtype=np.float32)
+        gpu_hit_sid = cuda.device_array(ray_capacity, dtype=np.int32)
+        gpu_hit_front = cuda.device_array(ray_capacity, dtype=np.uint8)
+        gpu_any_hit = cuda.device_array(ray_capacity, dtype=np.uint8)
+        gpu_surf_active = cuda.device_array(n_surf, dtype=np.uint8)
+        gpu_hf = cuda.device_array(n_surf, dtype=np.int64)
+        gpu_hb = cuda.device_array(n_surf, dtype=np.int64)
+        gpu_counts = cuda.device_array(145, dtype=np.int32) if sky_discrete else None
+        gpu_upward = cuda.device_array(1, dtype=np.int32) if not sky_discrete else None
+        gpu_stream = cuda.stream() if cuda_async else None
+        if cuda_async:
+            host_hf = cuda.pinned_array(n_surf, dtype=np.int64)
+            host_hb = cuda.pinned_array(n_surf, dtype=np.int64)
+            host_counts = cuda.pinned_array(145, dtype=np.int32) if sky_discrete else None
+            host_upward = cuda.pinned_array(1, dtype=np.int32) if not sky_discrete else None
+            if not gpu_raygen:
+                host_orig = cuda.pinned_array((ray_capacity, 3), dtype=np.float32)
+                host_dirs = cuda.pinned_array((ray_capacity, 3), dtype=np.float32)
+        elif not gpu_raygen:
+            host_orig, host_dirs = _host_ray_buffers(ray_capacity)
+
     for idx_emit, (name_e, _, _) in enumerate(meshes):
         t0 = time.time()
         emitter = emitters[idx_emit]
@@ -1313,29 +1397,31 @@ def view_factor_matrix_and_sky(
 
         if use_gpu:
             emitter_dev = prepared_solver.get_device_emitter(idx_emit, samples=samples, rays=rays, flip_faces=False)
-            d_orig = cuda.device_array((n_rays_once, 3), dtype=np.float32)
-            d_dirs = cuda.device_array((n_rays_once, 3), dtype=np.float32)
-            d_hit_sid = cuda.device_array(n_rays_once, dtype=np.int32)
-            d_hit_front = cuda.device_array(n_rays_once, dtype=np.uint8)
-            d_any_hit = cuda.device_array(n_rays_once, dtype=np.uint8)
-            d_surf_active = cuda.to_device(surf_active)
-            d_hf = cuda.device_array(n_surf, dtype=np.int64)
-            d_hb = cuda.device_array(n_surf, dtype=np.int64)
-            d_counts = cuda.device_array(145, dtype=np.int32) if sky_discrete else None
-            d_upward = cuda.device_array(1, dtype=np.int32) if not sky_discrete else None
-            stream = cuda.stream() if cuda_async else None
+            d_orig = gpu_orig[:n_rays_once]
+            d_dirs = gpu_dirs[:n_rays_once]
+            d_hit_sid = gpu_hit_sid[:n_rays_once]
+            d_hit_front = gpu_hit_front[:n_rays_once]
+            d_any_hit = gpu_any_hit[:n_rays_once]
+            d_surf_active = gpu_surf_active
+            d_surf_active.copy_to_device(surf_active)
+            d_hf = gpu_hf
+            d_hb = gpu_hb
+            d_counts = gpu_counts
+            d_upward = gpu_upward
+            stream = gpu_stream
             if cuda_async:
-                h_hf = cuda.pinned_array(n_surf, dtype=np.int64)
-                h_hb = cuda.pinned_array(n_surf, dtype=np.int64)
-                h_counts = cuda.pinned_array(145, dtype=np.int32) if sky_discrete else None
-                h_upward = cuda.pinned_array(1, dtype=np.int32) if not sky_discrete else None
+                h_hf = host_hf
+                h_hb = host_hb
+                h_counts = host_counts
+                h_upward = host_upward
                 if not gpu_raygen:
-                    h_orig = cuda.pinned_array((n_rays_once, 3), dtype=np.float32)
-                    h_dirs = cuda.pinned_array((n_rays_once, 3), dtype=np.float32)
+                    h_orig = host_orig[:n_rays_once]
+                    h_dirs = host_dirs[:n_rays_once]
             else:
                 h_hf = h_hb = h_counts = h_upward = None
                 if not gpu_raygen:
-                    h_orig, h_dirs = _host_ray_buffers(n_rays_once)
+                    h_orig = host_orig[:n_rays_once]
+                    h_dirs = host_dirs[:n_rays_once]
             blocks, threads = _compute_cuda_launch(n_rays_once, None)
             surf_blocks, surf_threads = _compute_cuda_launch(n_surf, threads)
             sky_blocks, sky_threads = _compute_cuda_launch(145 if sky_discrete else 1, threads)
@@ -1570,6 +1656,8 @@ def view_factor_matrix_and_sky(
                     interval=matrix_interval if use_gpu else 1,
                     max_iters=int(mp["max_iters"]),
                     needs_variance=(mp["tol_mode"] == "stderr"),
+                    total_rays=matrix_total_rays,
+                    min_total_rays=int(mp["min_total_rays"]),
                 )
                 if mp["tol_mode"] == "delta":
                     curr_f = hits_f / float(matrix_total_rays)
@@ -1600,6 +1688,8 @@ def view_factor_matrix_and_sky(
                     interval=sky_interval if use_gpu else 1,
                     max_iters=int(sp["max_iters"]),
                     needs_variance=(sp["tol_mode"] == "stderr"),
+                    total_rays=sky_total_rays,
+                    min_total_rays=int(sp["min_total_rays"]),
                 )
 
                 if sky_discrete:
@@ -1683,6 +1773,8 @@ def view_factor_matrix_and_sky(
         )
         _log(msg)
 
+    if bidirectional and areas is not None:
+        _average_bidirectional_front_flux(vf_scene, meshes, areas)
     return vf_scene, sky_vf
 
 
@@ -1694,6 +1786,8 @@ def view_factor_matrix(
 ):
     if not isinstance(params, MatrixParams):
         raise TypeError("params must be a MatrixParams instance")
+    if params.min_total_rays < 0:
+        raise ValueError("min_total_rays must be nonnegative")
 
     p = params.as_dict()
     samples = p["samples"]
@@ -1706,8 +1800,9 @@ def view_factor_matrix(
     tol = p["tol"]
     tol_mode = p["tol_mode"]
     min_iters = p["min_iters"]
+    min_total_rays = int(p["min_total_rays"])
     convergence_interval = max(1, int(p["convergence_interval"]))
-    reciprocity = p["reciprocity"]
+    reciprocity, bidirectional = _matrix_reciprocity_mode(params)
     enforce_reciprocity_rowsum = p["enforce_reciprocity_rowsum"]
     flip_faces = p["flip_faces"]
     return_stats = False
@@ -1718,7 +1813,7 @@ def view_factor_matrix(
     result: Dict[str, Dict[str, float]] = {name: {} for name, _, _ in meshes}
     stats_result: Dict[str, Dict[str, float]] = {} if return_stats else None  # type: ignore[assignment]
     emitters = prepared_solver.get_emitters(samples=samples, rays=rays, flip_faces=flip_faces)
-    areas = [emitter.total_area for emitter in emitters] if reciprocity else None
+    areas = [emitter.total_area for emitter in emitters] if (reciprocity or bidirectional) else None
     bounds_center, bounds_extent = prepared_solver.get_mesh_bounds()
     scene = prepared_solver.get_scene(use_bvh=use_bvh)
 
@@ -1742,12 +1837,15 @@ def view_factor_matrix(
             tol=tol,
             tol_mode=tol_mode,
             min_iters=min_iters,
+            min_total_rays=min_total_rays,
             convergence_interval=convergence_interval,
             max_iters=max_iters,
             return_stats=return_stats,
             areas=areas,
             use_bvh=use_bvh,
         )
+        if bidirectional and areas is not None:
+            _average_bidirectional_front_flux(result, meshes, areas)
         if enforce_reciprocity_rowsum:
             _enforce_reciprocity_and_rowsum(result, meshes, areas)
         if return_stats:
@@ -1889,6 +1987,8 @@ def view_factor_matrix(
                 interval=convergence_interval if use_gpu else 1,
                 max_iters=max_iters,
                 needs_variance=(tol_mode == "stderr"),
+                total_rays=total_rays,
+                min_total_rays=min_total_rays,
             )
             if tol_mode == "delta":
                 curr_f = hits_f / float(total_rays)
@@ -1938,6 +2038,8 @@ def view_factor_matrix(
         msg = f"({idx_emit+1}/{len(meshes)}) [{name_e}] {iters_done} iter, {total_rays:,} rays -> {time.time() - t_tot:0.3f}s  (BVH={'builtin' if use_bvh else 'off'}, device={'gpu' if use_gpu else 'cpu'})"
         _log(msg)
 
+    if bidirectional and areas is not None:
+        _average_bidirectional_front_flux(result, meshes, areas)
     if enforce_reciprocity_rowsum:
         _enforce_reciprocity_and_rowsum(result, meshes, areas)
     if return_stats:
@@ -1962,6 +2064,8 @@ def view_factor_to_tregenza_sky(
 ):
     if not isinstance(params, SkyParams):
         raise TypeError("params must be a SkyParams instance")
+    if params.min_total_rays < 0:
+        raise ValueError("min_total_rays must be nonnegative")
     if len(meshes) == 0:
         raise ValueError("meshes must not be empty")
 
@@ -2127,6 +2231,8 @@ def view_factor_to_tregenza_sky(
                 interval=convergence_interval if use_gpu else 1,
                 max_iters=max_iters,
                 needs_variance=(tol_mode == "stderr"),
+                total_rays=total_rays,
+                min_total_rays=int(p["min_total_rays"]),
             )
             if discrete:
                 counts_total += counts_iter_arr
