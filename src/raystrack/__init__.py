@@ -7,6 +7,10 @@ from .api import view_factor_outside_workflow
 from .targeted import view_factor_targeted
 from .params import MatrixParams, SkyParams
 from .utils.prepared import PreparedSolver
+from .preview import PreviewSession, PreviewResult
+from .devices import available_devices
+from .tuning import ExecutionPlan, warmup
+from .execution import SolveAccumulator
 from .store import RunStore, open_store, save_run
 from .io import (
     save_vf_matrix_json,
@@ -25,6 +29,12 @@ __all__ = [
     "MatrixParams",
     "SkyParams",
     "PreparedSolver",
+    "PreviewSession",
+    "PreviewResult",
+    "available_devices",
+    "ExecutionPlan",
+    "warmup",
+    "SolveAccumulator",
     "RunStore",
     "open_store",
     "save_run",

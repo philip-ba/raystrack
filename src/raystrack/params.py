@@ -11,15 +11,16 @@ class MatrixParams:
     Parameters
     ----------
     samples : int
-        Quasi-Monte Carlo grid per side used for emission per emitter.
+        Quasi-Monte Carlo sampling density per unit emitter area.
     rays : int
         Rays per grid cell.
     seed : int
         Base RNG seed. Each emitter/iteration derives its own sub-seed.
     bvh : {"auto","off","builtin"}
         Toggle a built-in BVH for faster visibility.
-    device : {"auto","gpu","cpu"}
-        Visibility device. GPU uses CUDA hitmask kernels. CPU uses numba njit.
+    device : {"auto","gpu","cpu","cuda","taichi","vulkan","metal"}
+        Auto uses a measured execution plan when tuning is enabled. Explicit GPU
+        requests never silently use CPU. CPU uses numba njit.
     cuda_async : bool
         Use pinned memory + streams for overlap on CUDA.
     gpu_raygen : bool
@@ -52,6 +53,25 @@ class MatrixParams:
         symmetric diagonal scaling.
     flip_faces : bool
         If True, flip emitter triangle winding during emission sampling.
+    emitter_names : list[str] or None
+        Compute selected sender rows, retaining all meshes as occluders.
+    max_total_rays : int or None
+        Hard global ray cap across selected emitters; zero performs no tracing.
+    max_time_ms : float or None
+        Soft wall-time limit, checked between ray chunks (includes preparation).
+    ray_batch_size : int
+        Maximum interactive ray chunk size; smaller chunks improve cancellation.
+        Cold compilation and an already running chunk may exceed the deadline.
+    sampling_mode : {"fair", "adaptive"}
+        Fair mode rotates ray chunks across emitters. Adaptive mode explores
+        every row, then gives extra work to rows with higher sampling error.
+    auto_tune : bool
+        For device="auto", use measured CPU/GPU plans when available and
+        calibrate unrestricted solves. Bounded previews use cached plans;
+        call session.warmup() to measure before an interactive deadline.
+    tune_budget_ms : float
+        Soft calibration budget. First-call compilation and an initial
+        measurement per backend can exceed it.
     """
     samples: int = 16
     rays: int = 128
@@ -70,6 +90,13 @@ class MatrixParams:
     flip_faces: bool = False
     min_total_rays: int = 0
     reciprocity_mode: str = "shortcut"
+    emitter_names: list[str] | None = None
+    max_total_rays: int | None = None
+    max_time_ms: float | None = None
+    ray_batch_size: int = 65536
+    sampling_mode: str = "fair"
+    auto_tune: bool = True
+    tune_budget_ms: float = 250.0
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -86,15 +113,15 @@ class SkyParams:
     Parameters
     ----------
     samples : int
-        Quasi-Monte Carlo grid per side used for emission per emitter.
+        Quasi-Monte Carlo sampling density per unit emitter area.
     rays : int
         Rays per grid cell.
     seed : int
         Base RNG seed. Each emitter/iteration derives its own sub-seed.
     bvh : {"auto","off","builtin"}
         Toggle a built-in BVH for faster visibility.
-    device : {"auto","gpu","cpu"}
-        Visibility device. GPU uses CUDA hitmask kernels. CPU uses numba njit.
+    device : {"auto","gpu","cpu","cuda","taichi","vulkan","metal"}
+        Device selection matches MatrixParams. Taichi is an optional dependency.
     cuda_async : bool
         Use pinned memory + streams for overlap on CUDA.
     gpu_raygen : bool
@@ -117,6 +144,9 @@ class SkyParams:
     discrete : bool
         If True, return 145 directional patches. If False, return a single
         merged "Sky" entry.
+    emitter_names, max_total_rays, max_time_ms, ray_batch_size, sampling_mode,
+    auto_tune, tune_budget_ms
+        Sender selection and global preview controls, as in MatrixParams.
     """
     samples: int = 16
     rays: int = 128
@@ -132,6 +162,13 @@ class SkyParams:
     convergence_interval: int = 1
     discrete: bool = False
     min_total_rays: int = 0
+    emitter_names: list[str] | None = None
+    max_total_rays: int | None = None
+    max_time_ms: float | None = None
+    ray_batch_size: int = 65536
+    sampling_mode: str = "fair"
+    auto_tune: bool = True
+    tune_budget_ms: float = 250.0
 
     def as_dict(self) -> Dict[str, Any]:
         return asdict(self)

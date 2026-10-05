@@ -1,5 +1,7 @@
 from __future__ import annotations
 from typing import Dict, List, Tuple
+from dataclasses import replace
+import time
 
 import numpy as np
 
@@ -8,6 +10,7 @@ from .main import (
     view_factor_matrix,
     view_factor_matrix_and_sky,
     view_factor_to_tregenza_sky,
+    _prepared_locked,
 )
 from .params import MatrixParams, SkyParams
 from .utils.helpers import (
@@ -21,12 +24,16 @@ def _row_sum(row: Dict[str, float]) -> float:
     return float(sum(float(v) for v in row.values()))
 
 
+@_prepared_locked
 def view_factor_outside_workflow(
     meshes: List[Tuple[str, np.ndarray, np.ndarray]],
     *,
     matrix_params: MatrixParams,
     sky_params: SkyParams,
     prepared: PreparedSolver | None = None,
+    cancel=None,
+    progress=None,
+    accumulator=None,
 ) -> Tuple[
     Dict[str, Dict[str, float]],
     Dict[str, Dict[str, float]],
@@ -93,6 +100,9 @@ def view_factor_outside_workflow(
     threshold = 1e-6
     enforce_scene = bool(matrix_params.enforce_reciprocity_rowsum)
     reciprocity_flag = bool(matrix_params.reciprocity)
+    controlled = (accumulator is not None or cancel is not None or progress is not None or
+                  any(p.emitter_names is not None or p.max_total_rays is not None
+                      or p.max_time_ms is not None for p in (matrix_params, sky_params)))
 
     # Ensure we don't auto-enforce rows at matrix stage
     matrix_defaults = MatrixParams(**matrix_params.as_dict())
@@ -104,26 +114,52 @@ def view_factor_outside_workflow(
             matrix_params=matrix_defaults,
             sky_params=sky_params,
             prepared=prepared,
+            cancel=cancel,
+            progress=progress,
+            accumulator=accumulator,
         )
     else:
-        vf_scene = view_factor_matrix(meshes, params=matrix_defaults, prepared=prepared)
-        sky_vf = view_factor_to_tregenza_sky(meshes, params=sky_params, prepared=prepared)
+        if controlled:
+            started = time.perf_counter()
+            rays_used = 0
+            def on_progress(count):
+                nonlocal rays_used
+                rays_used += count
+                if progress is not None:
+                    progress(count)
+            budgets = [p.max_total_rays for p in (matrix_params, sky_params) if p.max_total_rays is not None]
+            deadlines = [p.max_time_ms for p in (matrix_params, sky_params) if p.max_time_ms is not None]
+            cap = min(budgets) if budgets else None
+            deadline = min(deadlines) if deadlines else None
+            matrix_defaults = replace(matrix_defaults, max_total_rays=cap, max_time_ms=deadline)
+            vf_scene = view_factor_matrix(meshes, params=matrix_defaults, prepared=prepared,
+                                          cancel=cancel, progress=on_progress,
+                                          accumulator=None if accumulator is None else accumulator.child("matrix"))
+            remaining = None if cap is None else max(0, cap-rays_used)
+            ms_left = None if deadline is None else max(0.0, deadline-(time.perf_counter()-started)*1000)
+            sky_defaults = replace(sky_params, max_total_rays=remaining, max_time_ms=ms_left)
+            sky_vf = view_factor_to_tregenza_sky(meshes, params=sky_defaults, prepared=prepared,
+                                               cancel=cancel, progress=on_progress,
+                                               accumulator=None if accumulator is None else accumulator.child("sky"))
+        else:
+            vf_scene = view_factor_matrix(meshes, params=matrix_defaults, prepared=prepared)
+            sky_vf = view_factor_to_tregenza_sky(meshes, params=sky_params, prepared=prepared)
 
     # Determine convergence tolerances
     tol_matrix = float(matrix_params.tol)
     tol_sky = float(sky_params.tol)
     threshold = abs(float(threshold)) if threshold is not None else max(tol_matrix, tol_sky)
 
-    mesh_names = [name for name, _, _ in meshes]
+    mesh_names = [name for name, _, _ in meshes if name in vf_scene and name in sky_vf]
     scene_totals = {name: max(0.0, _row_sum(vf_scene.get(name, {}))) for name in mesh_names}
 
-    if enforce_scene:
+    if enforce_scene and not controlled:
         row_targets = [scene_totals.get(name, 0.0) for name in mesh_names]
         _enforce_reciprocity_and_rowsum(vf_scene, meshes, None, row_targets=row_targets)
 
     rest_vf: Dict[str, Dict[str, float]] = {}
 
-    mesh_names = [name for name, _, _ in meshes]
+    mesh_names = [name for name, _, _ in meshes if name in vf_scene and name in sky_vf]
     sky_totals = {name: 0.0 for name in mesh_names}
 
     for emitter in mesh_names:
@@ -152,10 +188,10 @@ def view_factor_outside_workflow(
 
         sky_totals[emitter] = max(0.0, sky_total)
 
-    if enforce_scene:
+    if enforce_scene and not controlled:
         row_targets = [max(0.0, 1.0 - sky_totals.get(name, 0.0)) for name in mesh_names]
         _enforce_reciprocity_and_rowsum(vf_scene, meshes, None, row_targets=row_targets)
-    elif reciprocity_flag and matrix_params.reciprocity_mode == "shortcut":
+    elif not controlled and reciprocity_flag and matrix_params.reciprocity_mode == "shortcut":
         _enforce_reciprocity_only(vf_scene, meshes)
 
     for emitter in mesh_names:

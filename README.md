@@ -7,14 +7,19 @@
 Lightweight Monte-Carlo view-factor solver for polygonal meshes.
 
 Raystrack computes radiative view factors F(i->j) between triangulated surfaces
-using quasi-Monte-Carlo ray tracing. It runs on CPU, can leverage Numba/CUDA on
-NVIDIA GPUs when available, and optionally accelerates ray intersection with a
-BVH. The repository also ships a pure-Python API you can use outside Rhino.
+using quasi-Monte-Carlo ray tracing. It runs on CPU, supports Numba/CUDA on
+NVIDIA GPUs, and offers optional Taichi GPU tracing through Vulkan or Metal.
+Prepared scenes support geometry updates and BVH refitting for moving scenes.
+The repository also ships a Python API you can use outside Rhino.
 
 ## Features
 - Efficient Monte-Carlo view factors: front/back hits, optional reciprocity
-- CPU and optional CUDA GPU backends (Numba)
+- CPU, CUDA, and optional portable Vulkan/Metal GPU backends
 - Optional BVH acceleration structures
+- Persistent geometry updates, transforms, deformation, and topology changes
+- Shared object instances with local BVHs and a refittable scene hierarchy
+- Fair/adaptive previews, global budgets, cancellation, and resumable refinement
+- Measured CPU/GPU selection and batch tuning
 - Python API plus Rhino 8 / Grasshopper components
 
 ## Installation
@@ -37,8 +42,40 @@ Or from an absolute path:
 pip install /path/to/raystrack
 ```
 
-Requirements: Python 3.9+, `numpy`, `numba`. CUDA acceleration is enabled
-automatically when `numba.cuda` detects a compatible GPU.
+Requirements: Python 3.9–3.13, `numpy`, `numba`. CUDA acceleration is enabled
+automatically when `numba.cuda` detects a compatible GPU. For a local checkout,
+install the optional GPU backends with:
+
+```sh
+pip install ".[portable-gpu]"  # Taichi Vulkan/Metal
+pip install ".[cuda]"          # separate NVIDIA CUDA target for Numba
+```
+
+Use `raystrack[portable-gpu]` instead of `.[portable-gpu]` when installing a
+published release that includes these features. Optional dependencies do not
+change a CPU-only installation.
+
+`device="auto"` compares warmed CPU/GPU work on unrestricted solves and reuses
+the measured plan on the same prepared solver. Capped or cancellable solves
+use a cached plan; without calibration, small batches use CPU and larger work
+uses an available GPU. Call `session.warmup()` before interactive deadlines to
+measure the choice and compile kernels. Set `auto_tune=False` for the original
+CUDA, then Taichi, then CPU availability preference.
+`device="gpu"` requires a GPU; `"cuda"`, `"taichi"`, `"vulkan"`, and `"metal"`
+request a specific backend and raise when unavailable. Vulkan targets compatible
+AMD/Intel/NVIDIA devices; Metal targets compatible Macs. Drivers determine
+availability. Intersections use compute kernels, without hardware ray-tracing
+extensions.
+
+```python
+from raystrack import available_devices
+print(available_devices())
+```
+
+Taichi owns one runtime per process. Raystrack reuses a compatible FP32 GPU
+runtime and rejects incompatible runtimes instead of resetting their data.
+For adapter selection, set Taichi's `TI_VISIBLE_DEVICE` environment variable
+before first GPU use. Backend kernel/buffer access is serialized.
 
 ### Rhino 8 / Grasshopper
 Raystrack is also available through the Rhino 8 Package Manager for use in
@@ -46,6 +83,13 @@ Rhino and Grasshopper.
 
 In Rhino 8, run the `PackageManager` command, search for `Raystrack`, install
 the package, and restart Rhino if prompted.
+
+Rhino 8 embeds Python 3.9. Check optional wheel availability for its platform:
+Taichi 1.7.4 ships Python 3.9 wheels for Windows/Linux, while its Apple Silicon
+wheels start at Python 3.10. Metal therefore requires a compatible external
+Python environment on those Macs; this repository does not bundle a
+Rhino-to-external-process bridge. Vulkan has been tested on an AMD Radeon 860M;
+Metal and Intel hardware require device-specific validation.
 
 ## Examples
 
@@ -209,6 +253,152 @@ RMSE from about `0.00935` to `0.00874`; its benefit depends on geometry and
 sample budget. The shared scene and sky workflow uses one ray set for both
 results in either mode. Its CUDA path also reuses ray and result buffers across
 emitters.
+
+## Moving scenes and interactive previews
+
+Prepare geometry once and update it explicitly. Prepared solvers own copied,
+read-only geometry. After an update, pass `prepared.meshes` to low-level
+functions; mismatched external meshes raise instead of using stale data.
+
+```python
+import numpy as np
+from raystrack import PreparedSolver, PreviewSession, MatrixParams, SkyParams
+
+prepared = PreparedSolver(meshes, acceleration="instanced")
+common = dict(samples=4, rays=32, device="auto", bvh="builtin", sampling_mode="adaptive")
+with PreviewSession(prepared, MatrixParams(**common), SkyParams(**common)) as session:
+    plan = session.warmup()  # diagnostic rays, separate from view-factor estimates
+    frame = session.preview(
+        emitter_names=[meshes[0][0]],
+        max_total_rays=8192,
+        max_time_ms=None,  # warm up before interactive deadlines
+    )
+    transform = np.eye(4)
+    transform[0, 3] = 2.0
+    session.update_transform(meshes[-1][0], transform)
+    frame = session.preview(max_total_rays=8192, max_time_ms=50)
+    refined = session.refine(factor=4)  # continue stationary samples to 4x total
+    print(frame.scene_version, frame.rays_used, frame.elapsed_ms)
+    print(refined.rays_used, refined.cumulative_rays)  # additional versus retained rays
+```
+
+- `update_transform(name_or_index, matrix)` applies an **absolute** proper rigid
+  4×4 transform relative to local vertices (`world = R @ local + translation`).
+  Scale, shear, reflection, projective, and non-finite transforms fail.
+- `update_vertices(name_or_index, vertices)` keeps faces and replaces world
+  vertices, resetting the local transform basis.
+- `update_mesh(name_or_index, vertices, faces=None)` permits topology changes.
+  Changed faces rebuild the BVH; stable topology refits bounding boxes.
+- `rebuild_bvh()` restores partitions after large motion. A refit remains
+  correct but its original partition can become inefficient.
+
+Changed emitter frames, areas, sampling distributions, bounds, and visibility
+masks refresh together. Unchanged emitters retain their preparation. Compatible
+CUDA allocations update in place, with changed triangle-range uploads where
+practical. CPU and portable buffers also persist across solves.
+
+`preview()` defaults to a **global** cap of 65,536 rays and a soft 50 ms deadline.
+Selected emitters retain every other mesh as an occluder: a moving blocker can
+change factors between stationary surfaces. Cold compilation/preparation can
+consume a frame's deadline before any samples are traced. The deadline is
+checked between chunks, so an already running chunk can exceed it.
+`ray_batch_size` controls that latency tradeoff (65,536 normally; 8,192 in
+preview sessions).
+
+Both parameter classes expose `emitter_names`, `max_total_rays`, `max_time_ms`,
+and `ray_batch_size`. Zero budgets perform no tracing. Untraced rows are omitted;
+residual `Rest` factors appear only for rows with scene and sky estimates.
+`sampling_mode="fair"` rotates chunks across requested emitter rows. Initial
+chunks grow gradually, so small budgets distribute work before large batches
+improve throughput. A cap smaller than the number of live emitters can still
+leave rows untraced. `sampling_mode="adaptive"` first explores every row with
+complete randomized replicates, then gives more work to rows with higher
+sampling error while retaining regular exploration. Partial replicates do not
+certify convergence.
+Compatible outside-workflow settings share rays and one budget; incompatible
+settings spend the remaining budget on the second pass.
+
+Low-level solves accept `cancel=lambda: ...` and `progress=lambda ray_count: ...`.
+Progress reports additional rays per completed chunk. Budgeted/selected solves
+trace direct sender rows; shortcut reciprocity does not invent untraced rows.
+`reciprocity_mode="bidirectional"` can average sampled front-side pairs.
+Preview results do not normalize incomplete data to enforce row sums.
+
+`session.submit(...)` returns a `Future` from one preview worker. New requests
+cancel queued work and supersede running work at its next chunk. Running stale
+requests return `cancelled=True` with empty result mappings; queued futures may
+raise `CancelledError`. Session update methods cancel old work before mutation.
+Shared prepared solvers serialize low-level solves and updates with a lock.
+
+`PreviewResult` contains immutable `scene`, `sky`, and `rest` mappings,
+`scene_version`, `rays_used`, `cumulative_rays`, `elapsed_ms`, `completed`,
+`cancelled`, `status`, `converged`, and `statistics`.
+`completed` means a usable current-scene preview, **not** statistical convergence.
+`status` distinguishes sampling, convergence, iteration caps, and cancellation.
+Statistics include completed-replicate sampling error and per-emitter ray counts;
+they do not establish formal confidence-interval coverage. `as_dict()` produces
+ordinary dictionaries for JSON export.
+
+Refinement retains raw counts and running statistics for the same scene and
+continues at the saved seed and intra-iteration ray offset. `rays_used` counts
+only newly traced rays; `cumulative_rays` includes retained work. By default,
+`refine(factor=2)` targets twice the current cumulative ray count. An explicit
+`refine(max_total_rays=...)` requests that many **additional** rays. Convergence
+or iteration limits can stop before the target. Changing geometry, sampling,
+outputs, or selection requires a fresh preview. Cancelling or superseding work
+discards its resumable state. Shared scene/sky accumulation retains both kinds
+of counts while either needs more work, so later stricter refinement can use
+intersections already computed for the other output.
+
+Low-level matrix/sky/outside calls also accept `accumulator=SolveAccumulator()`
+with a persistent prepared solver. Each call's ray budget is additional; returned
+estimates include prior calls. Incompatible outside-workflow sampling uses
+separate matrix and sky accumulators and spends the remaining global budget on
+the second pass.
+
+`session.warmup()` or `warmup(prepared, matrix_params, sky_params)` measures
+synchronized ray generation, tracing, and reduction on representative work.
+The returned `ExecutionPlan` exposes the backend, chunk size, timings, failures,
+and diagnostic ray count. Explicit GPU requests preserve their backend.
+`tune_budget_ms` is a soft calibration limit: compilation and an initial warm
+measurement per backend can exceed it. Plans persist through rigid motion and
+are separated by workload size, acceleration mode, and output configuration.
+
+`PreparedSolver(..., acceleration="instanced")` keeps a local BVH per object
+and a top-level BVH of transformed object bounds. Rigid updates change transforms
+and the top-level hierarchy; local tracing geometry remains reusable. World
+emitter preparation refreshes when needed. To share a prototype across multiple
+objects, use `PreparedSolver.from_instances(prototypes, instances)`, where
+`prototypes` is the usual mesh list and each instance is
+`(name, prototype_name_or_index, proper_rigid_4x4_transform)`. Deformation and
+topology edits detach the changed instance's local geometry. This is software
+two-level traversal, using the existing compute backends.
+Instanced acceleration always uses its two-level BVHs; this constructor choice
+takes precedence over the flat-scene `bvh` parameter. The top-level tree
+automatically rebuilds when its bounding-box quality measure degrades, and
+`rebuild_bvh()` remains available for explicit rebuilding.
+
+Unrestricted shared CUDA and portable solves can enqueue replicates up to a
+convergence checkpoint and read back compact count arrays together. FP32
+geometry and bounded portable int32 counters feed host int64 totals and float64
+statistics. Set `convergence_interval` to reduce readback frequency; interactive
+cancellation uses smaller chunks instead. CPU can be faster for small scenes.
+
+Run the moving-blocker example and timing/consistency benchmark:
+
+```sh
+python examples/ex06_dynamic_preview.py --device cpu
+python validation/benchmark_dynamic.py --device cpu --frames 3
+python validation/benchmark_dynamic.py --device vulkan --json dynamic-results.json
+python validation/benchmark_dynamic.py --device vulkan --acceleration instanced --json instanced-results.json
+python validation/validate_dynamic_backends.py --devices cpu vulkan --accelerations flat instanced --json accuracy-results.json
+```
+
+The benchmark separates preparation, cold/warm solves, updates/refits, and fresh
+preparation, and checks updates against fresh seeded solves. Agreement checks
+cache correctness, rather than Monte Carlo error against an analytic reference.
+Log messages use standard output; set `RAYSTRACK_LOG_CONSOLE=1` to explicitly
+open the legacy log console.
 
 ## Author
 Philip Balizki <philip@metis.earth>

@@ -36,3 +36,20 @@ Run all validations:
 ```powershell
 python validation\run_all.py
 ```
+
+Check the new dynamic execution path and optional portable GPU backends against
+closed-form references, without replacing the original validation result files:
+
+```powershell
+python validation\validate_dynamic_backends.py --devices cpu vulkan --json report.json
+python validation\validate_dynamic_backends.py --devices cpu vulkan --accelerations flat instanced --sampling-mode adaptive --json instancing-report.json
+```
+
+This checks six configurations across three disjoint seed ranges by default,
+including a receiver moved through three square-plate separations using one
+prepared BVH. The per-seed absolute view-factor tolerance is `1e-3`; this is an
+accuracy smoke check, not the original `1e-4` validation suite or a study of
+confidence-interval coverage. Use `--devices cpu`, `metal`, or `cuda` to check
+another supported backend. Vulkan/Metal require the `portable-gpu` extra.
+`--accelerations flat instanced` checks both traversal representations;
+`--sampling-mode adaptive` exercises the accuracy-driven executor.

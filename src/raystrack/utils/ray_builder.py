@@ -44,21 +44,23 @@ def build_rays(
     dire,
     cp_grid,
     cp_dims,
+    ray_offset=0,
 ):
     """Create ray origins and directions from precomputed emitter data."""
     n_rays = orig.shape[0]
     two_pi = 6.283185307179586
 
     for idx in nb.prange(n_rays):
-        cell = idx // rays_per_cell
+        sample_idx = idx + ray_offset
+        cell = sample_idx // rays_per_cell
         ug = (u_grid[cell] + cp_grid[0]) % 1.0
         vg = (v_grid[cell] + cp_grid[1]) % 1.0
 
-        q_tri = (halton_tri[idx] + cp_dims[0]) % 1.0
+        q_tri = (halton_tri[sample_idx] + cp_dims[0]) % 1.0
         tri = _binary_search_cdf(cdf, q_tri)
 
-        ur = (halton_u[idx] + cp_dims[1] + ug) % 1.0
-        vr = (halton_v[idx] + cp_dims[2] + vg) % 1.0
+        ur = (halton_u[sample_idx] + cp_dims[1] + ug) % 1.0
+        vr = (halton_v[sample_idx] + cp_dims[2] + vg) % 1.0
 
         s = math.sqrt(ur)
         mix_b = s * vr
@@ -72,8 +74,8 @@ def build_rays(
         py = ay + mix_b * tri_e1[tri, 1] + mix_c * tri_e2[tri, 1]
         pz = az + mix_b * tri_e1[tri, 2] + mix_c * tri_e2[tri, 2]
 
-        r1 = (halton_r1[idx] + cp_dims[3]) % 1.0
-        r2 = (halton_r2[idx] + cp_dims[4]) % 1.0
+        r1 = (halton_r1[sample_idx] + cp_dims[3]) % 1.0
+        r2 = (halton_r2[sample_idx] + cp_dims[4]) % 1.0
 
         sin_t = math.sqrt(1.0 - r1)
         phi = two_pi * r2

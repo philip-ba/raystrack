@@ -10,6 +10,7 @@ import numpy as np
 
 from .utils.prepared import PreparedSolver
 from .utils.halton import _build_halton_dim
+from .main import _prepared_locked
 
 
 @nb.njit(parallel=True, cache=True)
@@ -108,6 +109,7 @@ def _pair_uniforms(samples: int, rng: np.random.Generator,
     raise ValueError("sequence must be 'random' or 'shifted_halton'")
 
 
+@_prepared_locked
 def view_factor_targeted(
     meshes: List[Tuple[str, np.ndarray, np.ndarray]],
     sender: str,
@@ -138,11 +140,7 @@ def view_factor_targeted(
     if prepared is not None:
         if not isinstance(prepared, PreparedSolver) or len(prepared.meshes) != len(meshes):
             raise ValueError("prepared must contain the same ordered meshes")
-        for cached, current in zip(prepared.meshes, meshes):
-            if (cached[0] != current[0]
-                    or not (cached[1] is current[1] or np.array_equal(cached[1], current[1]))
-                    or not (cached[2] is current[2] or np.array_equal(cached[2], current[2]))):
-                raise ValueError("prepared must contain the same ordered meshes")
+        prepared.validate_meshes(meshes)
 
     rng = np.random.default_rng(seed)
     uniforms = _pair_uniforms(samples, rng, sequence)

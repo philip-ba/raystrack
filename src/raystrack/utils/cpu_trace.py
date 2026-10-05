@@ -9,6 +9,112 @@ INF = 1.0e20
 STACK_SIZE = 64
 
 
+@nb.njit(inline="always", cache=True)
+def _instance_aabb(o, d, lower, upper, node):
+    near, far = 0.0, INF
+    for axis in range(3):
+        if abs(d[axis]) <= 1e-9:
+            if o[axis] < lower[node, axis] or o[axis] > upper[node, axis]:
+                return INF
+        else:
+            a = (lower[node, axis] - o[axis]) / d[axis]
+            b = (upper[node, axis] - o[axis]) / d[axis]
+            near, far = max(near, min(a, b)), min(far, max(a, b))
+    return near if near <= far else INF
+
+
+@nb.njit(inline="always", cache=True)
+def _instance_intersect(o, d, geom, tri):
+    px = d[1] * geom[tri, 8] - d[2] * geom[tri, 7]
+    py = d[2] * geom[tri, 6] - d[0] * geom[tri, 8]
+    pz = d[0] * geom[tri, 7] - d[1] * geom[tri, 6]
+    det = geom[tri, 3] * px + geom[tri, 4] * py + geom[tri, 5] * pz
+    if abs(det) < 1e-7:
+        return INF
+    inv = 1.0 / det
+    tx, ty, tz = o[0] - geom[tri, 0], o[1] - geom[tri, 1], o[2] - geom[tri, 2]
+    u = (tx * px + ty * py + tz * pz) * inv
+    if u < 0 or u > 1:
+        return INF
+    qx = ty * geom[tri, 5] - tz * geom[tri, 4]
+    qy = tz * geom[tri, 3] - tx * geom[tri, 5]
+    qz = tx * geom[tri, 4] - ty * geom[tri, 3]
+    v = (d[0] * qx + d[1] * qy + d[2] * qz) * inv
+    t = (geom[tri, 6] * qx + geom[tri, 7] * qy + geom[tri, 8] * qz) * inv
+    return t if v >= 0 and u + v <= 1 and t > 1e-6 else INF
+
+
+@nb.njit(inline="always", cache=True)
+def _instance_ray(o, d, geom, blo, bhi, bleft, bstart, bcount, bescape,
+                  roots, rotations, translations, tlo, thi, tleft, tstart,
+                  tcount, tescape, instance_order, active, emit_sid, min_sid):
+    best, hit, front, any_hit = INF, -1, 0, 0
+    node = 0 if len(tcount) else -1
+    while node >= 0:
+        successor = tescape[node]
+        if _instance_aabb(o, d, tlo, thi, node) < best:
+            if tcount[node] == 0:
+                successor = tleft[node]
+            else:
+                for position in range(tstart[node], tstart[node] + tcount[node]):
+                    surface = instance_order[position]
+                    if surface == emit_sid or active[surface] == 0:
+                        continue
+                    dx, dy, dz = (o[0] - translations[surface, 0],
+                                  o[1] - translations[surface, 1],
+                                  o[2] - translations[surface, 2])
+                    # A proper rigid inverse preserves ray parameter distances.
+                    local_o = (rotations[surface, 0, 0] * dx + rotations[surface, 1, 0] * dy + rotations[surface, 2, 0] * dz,
+                               rotations[surface, 0, 1] * dx + rotations[surface, 1, 1] * dy + rotations[surface, 2, 1] * dz,
+                               rotations[surface, 0, 2] * dx + rotations[surface, 1, 2] * dy + rotations[surface, 2, 2] * dz)
+                    local_d = (rotations[surface, 0, 0] * d[0] + rotations[surface, 1, 0] * d[1] + rotations[surface, 2, 0] * d[2],
+                               rotations[surface, 0, 1] * d[0] + rotations[surface, 1, 1] * d[1] + rotations[surface, 2, 1] * d[2],
+                               rotations[surface, 0, 2] * d[0] + rotations[surface, 1, 2] * d[1] + rotations[surface, 2, 2] * d[2])
+                    blas_node = roots[surface]
+                    while blas_node >= 0:
+                        next_blas = bescape[blas_node]
+                        if _instance_aabb(local_o, local_d, blo, bhi, blas_node) < best:
+                            if bcount[blas_node] == 0:
+                                next_blas = bleft[blas_node]
+                            else:
+                                for tri in range(bstart[blas_node], bstart[blas_node] + bcount[blas_node]):
+                                    distance = _instance_intersect(local_o, local_d, geom, tri)
+                                    if distance < INF:
+                                        any_hit = 1
+                                        if surface >= min_sid and distance < best:
+                                            best, hit = distance, surface
+                                            front = int(-(local_d[0] * geom[tri, 9] + local_d[1] * geom[tri, 10]
+                                                          + local_d[2] * geom[tri, 11]) > 0)
+                        blas_node = next_blas
+        node = successor
+    return hit, front, any_hit
+
+
+@nb.njit(parallel=True, cache=True)
+def _trace_cpu_instanced_arrays(orig, dirs, geom, blo, bhi, bleft, bstart, bcount, bescape,
+                               roots, rotations, translations, tlo, thi, tleft, tstart,
+                               tcount, tescape, instance_order, active, emit_sid, min_sid,
+                               hit, front, mask):
+    for k in nb.prange(len(orig)):
+        o = (orig[k, 0], orig[k, 1], orig[k, 2])
+        d = (dirs[k, 0], dirs[k, 1], dirs[k, 2])
+        hit[k], front[k], mask[k] = _instance_ray(
+            o, d, geom, blo, bhi, bleft, bstart, bcount, bescape,
+            roots, rotations, translations, tlo, thi, tleft, tstart,
+            tcount, tescape, instance_order, active, emit_sid, min_sid)
+
+
+def trace_cpu_instanced_combined(orig, dirs, scene, active, emit_sid, min_sid, hit, front, mask):
+    """Nearest local-BLAS hits plus full-scene occlusion, through a world TLAS."""
+    _trace_cpu_instanced_arrays(orig, dirs, *scene.traversal_arrays(), active,
+                               emit_sid, min_sid, hit, front, mask)
+
+
+def trace_cpu_instanced_firsthit(orig, dirs, scene, active, emit_sid, min_sid, hit, front):
+    trace_cpu_instanced_combined(orig, dirs, scene, active, emit_sid, min_sid,
+                                hit, front, np.empty(len(orig), np.uint8))
+
+
 @nb.njit(inline="always", cache=True, fastmath=True)
 def _aabb_tmin(o0, o1, o2, inv0, inv1, inv2, bmin0, bmin1, bmin2, bmax0, bmax1, bmax2):
     tmin = (bmin0 - o0) * inv0

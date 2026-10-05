@@ -1,0 +1,455 @@
+{
+  "settings": {
+    "samples": 256,
+    "rays": 256,
+    "iterations": 64,
+    "seeds": [
+      11,
+      1009,
+      10007
+    ],
+    "absolute_tolerance_per_seed": 0.001
+  },
+  "notes": [
+    "Selected emitter forces dynamic execution; square cases reuse/refit one BVH.",
+    "Every seed runs the full iteration count without convergence early stopping.",
+    "Disc meshes approximate curved boundaries with 256 segments.",
+    "Elapsed times include preparation/cache loading and compilation; not a speed comparison.",
+    "This does not validate uncertainty coverage or all supported hardware."
+  ],
+  "measurements": [
+    {
+      "case": "moving_square_gap_0.5",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "scene_version": 1,
+      "analytical": 0.41525328357714675,
+      "mean_view_factor": 0.4153207143147786,
+      "max_absolute_error": 7.355014782883806e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.4153268337249756,
+          "absolute_error": 7.355014782883806e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 245.0964000017848
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.4153120517730713,
+          "absolute_error": 5.876819592454119e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 148.10919999945327
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.41532325744628906,
+          "absolute_error": 6.997386914231463e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 127.02179999905638
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_1",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "scene_version": 2,
+      "analytical": 0.19982489569838746,
+      "mean_view_factor": 0.19973262151082358,
+      "max_absolute_error": 0.00026210768874390666,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.19956278800964355,
+          "absolute_error": 0.00026210768874390666,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 115.63019999812241
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19994282722473145,
+          "absolute_error": 0.00011793152634398396,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 134.8878999997396
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.1996922492980957,
+          "absolute_error": 0.00013264640029175823,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 141.99379999990924
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_2",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "scene_version": 3,
+      "analytical": 0.0685895888185526,
+      "mean_view_factor": 0.06856425603230794,
+      "max_absolute_error": 4.520100116978121e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.0685877799987793,
+          "absolute_error": 1.8088197732968325e-06,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 118.91489999834448
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.06856060028076172,
+          "absolute_error": 2.8988537790874958e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 116.8173999976716
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.06854438781738281,
+          "absolute_error": 4.520100116978121e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 123.61779999991995
+        }
+      ]
+    },
+    {
+      "case": "parallel_rectangle_2x1",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "scene_version": 0,
+      "analytical": 0.28587538485071473,
+      "mean_view_factor": 0.28597347497489367,
+      "max_absolute_error": 0.00012116579761939361,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.2859889356760988,
+          "absolute_error": 0.0001135508253840567,
+          "passed": true,
+          "rays": 8667136,
+          "elapsed_ms": 353.94069999892963
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.2859965506483341,
+          "absolute_error": 0.00012116579761939361,
+          "passed": true,
+          "rays": 8667136,
+          "elapsed_ms": 415.53750000093714
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.2859349386002481,
+          "absolute_error": 5.955374953336978e-05,
+          "passed": true,
+          "rays": 8667136,
+          "elapsed_ms": 405.7262999995146
+        }
+      ]
+    },
+    {
+      "case": "coaxial_discs_256_segments",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "scene_version": 0,
+      "analytical": 0.3819660112501051,
+      "mean_view_factor": 0.3819828766752131,
+      "max_absolute_error": 6.653057603195345e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.3819602576220645,
+          "absolute_error": 5.753628040616743e-06,
+          "passed": true,
+          "rays": 13778944,
+          "elapsed_ms": 4080.607299998519
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.38203254182613705,
+          "absolute_error": 6.653057603195345e-05,
+          "passed": true,
+          "rays": 13778944,
+          "elapsed_ms": 3869.006000000809
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.3819558305774376,
+          "absolute_error": 1.0180672667503554e-05,
+          "passed": true,
+          "rays": 13778944,
+          "elapsed_ms": 3617.848199999571
+        }
+      ]
+    },
+    {
+      "case": "perpendicular_square_rectangle",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "scene_version": 0,
+      "analytical": 0.20004377607540313,
+      "mean_view_factor": 0.20003310839335123,
+      "max_absolute_error": 7.949117855254872e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.20009946823120117,
+          "absolute_error": 5.569215579803721e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 184.7181000011915
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19996428489685059,
+          "absolute_error": 7.949117855254872e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 192.80760000037844
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.20003557205200195,
+          "absolute_error": 8.204023401181537e-06,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 194.84749999901396
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_0.5",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "scene_version": 1,
+      "analytical": 0.41525328357714675,
+      "mean_view_factor": 0.4153207143147786,
+      "max_absolute_error": 7.355014782883806e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.4153268337249756,
+          "absolute_error": 7.355014782883806e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 592.7618999994593
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.4153120517730713,
+          "absolute_error": 5.876819592454119e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 132.07560000228113
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.41532325744628906,
+          "absolute_error": 6.997386914231463e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 144.5099000011396
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_1",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "scene_version": 2,
+      "analytical": 0.19982489569838746,
+      "mean_view_factor": 0.19973262151082358,
+      "max_absolute_error": 0.00026210768874390666,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.19956278800964355,
+          "absolute_error": 0.00026210768874390666,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 140.16089999859105
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19994282722473145,
+          "absolute_error": 0.00011793152634398396,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 134.77269999930286
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.1996922492980957,
+          "absolute_error": 0.00013264640029175823,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 120.58080000133486
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_2",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "scene_version": 3,
+      "analytical": 0.0685895888185526,
+      "mean_view_factor": 0.06856417655944824,
+      "max_absolute_error": 4.520100116978121e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.0685875415802002,
+          "absolute_error": 2.047238352398395e-06,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 128.2616999997117
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.06856060028076172,
+          "absolute_error": 2.8988537790874958e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 113.59930000253371
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.06854438781738281,
+          "absolute_error": 4.520100116978121e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 199.76880000103847
+        }
+      ]
+    },
+    {
+      "case": "parallel_rectangle_2x1",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "scene_version": 0,
+      "analytical": 0.28587538485071473,
+      "mean_view_factor": 0.28597343651543794,
+      "max_absolute_error": 0.00012116579761939361,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.2859888202977316,
+          "absolute_error": 0.00011343544701686303,
+          "passed": true,
+          "rays": 8667136,
+          "elapsed_ms": 135.95409999834374
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.2859965506483341,
+          "absolute_error": 0.00012116579761939361,
+          "passed": true,
+          "rays": 8667136,
+          "elapsed_ms": 121.16400000013527
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.2859349386002481,
+          "absolute_error": 5.955374953336978e-05,
+          "passed": true,
+          "rays": 8667136,
+          "elapsed_ms": 121.65839999943273
+        }
+      ]
+    },
+    {
+      "case": "coaxial_discs_256_segments",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "scene_version": 0,
+      "analytical": 0.3819660112501051,
+      "mean_view_factor": 0.38198285248371233,
+      "max_absolute_error": 6.66031505340281e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.38196003989855826,
+          "absolute_error": 5.9713515468406975e-06,
+          "passed": true,
+          "rays": 13778944,
+          "elapsed_ms": 807.6650000002701
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.3820326144006391,
+          "absolute_error": 6.66031505340281e-05,
+          "passed": true,
+          "rays": 13778944,
+          "elapsed_ms": 680.2309000013338
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.38195590315193967,
+          "absolute_error": 1.0108098165428903e-05,
+          "passed": true,
+          "rays": 13778944,
+          "elapsed_ms": 577.6318999996874
+        }
+      ]
+    },
+    {
+      "case": "perpendicular_square_rectangle",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "scene_version": 0,
+      "analytical": 0.20004377607540313,
+      "mean_view_factor": 0.20003310839335123,
+      "max_absolute_error": 7.949117855254872e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.20009946823120117,
+          "absolute_error": 5.569215579803721e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 185.4124999990745
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19996428489685059,
+          "absolute_error": 7.949117855254872e-05,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 194.22950000080164
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.20003557205200195,
+          "absolute_error": 8.204023401181537e-06,
+          "passed": true,
+          "rays": 4194304,
+          "elapsed_ms": 181.4892999973381
+        }
+      ]
+    }
+  ],
+  "all_passed": true
+}

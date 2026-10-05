@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import wraps
 import os
 import subprocess
 import sys
@@ -43,6 +44,17 @@ from .utils.cuda_trace import (
 from .utils.helpers import enforce_reciprocity_and_rowsum as _enforce_reciprocity_and_rowsum
 from .utils.prepared import PreparedEmitter, PreparedSolver
 from .utils.ray_builder import build_rays
+
+
+def _prepared_locked(function):
+    @wraps(function)
+    def locked(*args, **kwargs):
+        prepared = kwargs.get("prepared")
+        if isinstance(prepared, PreparedSolver) and hasattr(prepared, "solve_lock"):
+            with prepared.solve_lock:
+                return function(*args, **kwargs)
+        return function(*args, **kwargs)
+    return locked
 
 _LOG_PROC = None
 _BVH_AUTO_THRESHOLD = 512
@@ -90,7 +102,7 @@ def _open_log_console() -> None:
 
 
 def _log(msg: str) -> None:
-    if _LOG_PROC is None:
+    if _LOG_PROC is None and os.environ.get("RAYSTRACK_LOG_CONSOLE") == "1":
         _open_log_console()
     if _LOG_PROC and _LOG_PROC.stdin:
         try:
@@ -134,17 +146,8 @@ def _select_bvh(bvh: str | None, total_faces: int) -> bool:
 
 
 def _resolve_device(device: str | None) -> bool:
-    have_cuda = cuda.is_available()
-    dev = (device or "auto").lower()
-    if dev not in ("auto", "gpu", "cpu"):
-        raise ValueError(f"device must be 'auto', 'gpu', or 'cpu' (got {device!r})")
-    if dev == "auto":
-        return have_cuda
-    if dev == "gpu":
-        if not have_cuda:
-            raise RuntimeError("device='gpu' requested but CUDA is not available")
-        return True
-    return False
+    from .devices import resolve_backend
+    return resolve_backend(device) == "cuda"
 
 
 def _ensure_prepared(
@@ -155,6 +158,7 @@ def _ensure_prepared(
         return PreparedSolver(meshes)
     if not isinstance(prepared, PreparedSolver):
         raise TypeError("prepared must be a PreparedSolver instance")
+    prepared.validate_meshes(meshes)
     return prepared
 
 
@@ -1257,18 +1261,24 @@ def outside_workflow_shareable(matrix_params: MatrixParams, sky_params: SkyParam
     The matrix solve must also keep ``flip_faces=False`` because the sky solve
     assumes outward emission.
     """
-    shared_fields = ("samples", "rays", "seed", "bvh", "device", "cuda_async", "gpu_raygen")
+    shared_fields = ("samples", "rays", "seed", "bvh", "device", "cuda_async", "gpu_raygen",
+                     "emitter_names", "max_total_rays", "max_time_ms", "ray_batch_size",
+                     "sampling_mode", "auto_tune", "tune_budget_ms")
     if bool(matrix_params.flip_faces):
         return False
     return all(getattr(matrix_params, key) == getattr(sky_params, key) for key in shared_fields)
 
 
+@_prepared_locked
 def view_factor_matrix_and_sky(
     meshes: List[Tuple[str, np.ndarray, np.ndarray]],
     *,
     matrix_params: MatrixParams,
     sky_params: SkyParams,
     prepared: PreparedSolver | None = None,
+    cancel=None,
+    progress=None,
+    accumulator=None,
 ) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, float]]]:
     """Compute scene view factors and sky VF from a shared set of rays.
 
@@ -1301,6 +1311,13 @@ def view_factor_matrix_and_sky(
         raise ValueError("min_total_rays must be nonnegative")
     if not outside_workflow_shareable(matrix_params, sky_params):
         raise ValueError("matrix_params and sky_params are not compatible for shared tracing")
+    from .execution import common_required, solve
+    if (accumulator is not None or getattr(prepared, "acceleration", None) == "instanced"
+            or (str(matrix_params.device or "auto").lower() == "auto" and matrix_params.auto_tune)
+            or matrix_params.sampling_mode == "adaptive"
+            or common_required(matrix_params, cancel, progress, shared=True)):
+        return solve(meshes, matrix_params=matrix_params, sky_params=sky_params,
+                     prepared=prepared, cancel=cancel, progress=progress, accumulator=accumulator)
 
     mp = matrix_params.as_dict()
     sp = sky_params.as_dict()
@@ -1778,16 +1795,27 @@ def view_factor_matrix_and_sky(
     return vf_scene, sky_vf
 
 
+@_prepared_locked
 def view_factor_matrix(
     meshes: List[Tuple[str, np.ndarray, np.ndarray]],
     params: MatrixParams,
     *,
     prepared: PreparedSolver | None = None,
+    cancel=None,
+    progress=None,
+    accumulator=None,
 ):
     if not isinstance(params, MatrixParams):
         raise TypeError("params must be a MatrixParams instance")
     if params.min_total_rays < 0:
         raise ValueError("min_total_rays must be nonnegative")
+
+    from .execution import common_required, solve
+    if (accumulator is not None or getattr(prepared, "acceleration", None) == "instanced"
+            or (str(params.device or "auto").lower() == "auto" and params.auto_tune)
+            or params.sampling_mode == "adaptive" or common_required(params, cancel, progress)):
+        return solve(meshes, matrix_params=params, prepared=prepared,
+                     cancel=cancel, progress=progress, accumulator=accumulator)[0]
 
     p = params.as_dict()
     samples = p["samples"]
@@ -2056,11 +2084,15 @@ def view_factor(sender, receiver, params: MatrixParams, *, prepared: PreparedSol
     return {name: vf_all.get(name, {}) for name in sender_names}
 
 
+@_prepared_locked
 def view_factor_to_tregenza_sky(
     meshes: List[Tuple[str, np.ndarray, np.ndarray]],
     params: SkyParams,
     *,
     prepared: PreparedSolver | None = None,
+    cancel=None,
+    progress=None,
+    accumulator=None,
 ):
     if not isinstance(params, SkyParams):
         raise TypeError("params must be a SkyParams instance")
@@ -2068,6 +2100,13 @@ def view_factor_to_tregenza_sky(
         raise ValueError("min_total_rays must be nonnegative")
     if len(meshes) == 0:
         raise ValueError("meshes must not be empty")
+
+    from .execution import common_required, solve
+    if (accumulator is not None or getattr(prepared, "acceleration", None) == "instanced"
+            or (str(params.device or "auto").lower() == "auto" and params.auto_tune)
+            or params.sampling_mode == "adaptive" or common_required(params, cancel, progress)):
+        return solve(meshes, sky_params=params, prepared=prepared,
+                     cancel=cancel, progress=progress, accumulator=accumulator)[1]
 
     p = params.as_dict()
     samples = p["samples"]
@@ -2099,8 +2138,6 @@ def view_factor_to_tregenza_sky(
         d_scene = prepared_solver.get_device_scene(use_bvh=use_bvh)
 
     for idx_emit, (name_e, _, _) in enumerate(meshes):
-        if len(meshes) <= 1:
-            continue
         t0 = time.time()
         emitter = emitters[idx_emit]
         surf_active = _build_emitter_surface_mask(idx_emit, emitter, bounds_center, bounds_extent)

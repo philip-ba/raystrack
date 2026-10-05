@@ -652,21 +652,23 @@ def kernel_build_rays(
     dire,
     cp_grid,
     cp_dims,
+    ray_offset=0,
 ):
     k = cuda.grid(1)
     n_rays = orig.shape[0]
     if k >= n_rays:
         return
 
-    cell = k // rays_per_cell
+    sample_idx = k + ray_offset
+    cell = sample_idx // rays_per_cell
     ug = (u_grid[cell] + cp_grid[0]) % 1.0
     vg = (v_grid[cell] + cp_grid[1]) % 1.0
 
-    q_tri = (halton_tri[k] + cp_dims[0]) % 1.0
+    q_tri = (halton_tri[sample_idx] + cp_dims[0]) % 1.0
     tri = _binary_search_cdf(cdf, q_tri)
 
-    ur = (halton_u[k] + cp_dims[1] + ug) % 1.0
-    vr = (halton_v[k] + cp_dims[2] + vg) % 1.0
+    ur = (halton_u[sample_idx] + cp_dims[1] + ug) % 1.0
+    vr = (halton_v[sample_idx] + cp_dims[2] + vg) % 1.0
 
     s = math.sqrt(ur)
     mix_b = s * vr
@@ -680,8 +682,8 @@ def kernel_build_rays(
     py = ay + mix_b * tri_e1[tri, 1] + mix_c * tri_e2[tri, 1]
     pz = az + mix_b * tri_e1[tri, 2] + mix_c * tri_e2[tri, 2]
 
-    r1 = (halton_r1[k] + cp_dims[3]) % 1.0
-    r2 = (halton_r2[k] + cp_dims[4]) % 1.0
+    r1 = (halton_r1[sample_idx] + cp_dims[3]) % 1.0
+    r2 = (halton_r2[sample_idx] + cp_dims[4]) % 1.0
     sin_t = math.sqrt(1.0 - r1)
     phi = 6.283185307179586 * r2
     x = sin_t * math.cos(phi)
@@ -1283,3 +1285,97 @@ __all__ = [
     "kernel_trace_count_upward",
     "kernel_trace_bvh_count_upward",
 ]
+
+
+# Stackless two-level traversal; no world triangle upload for rigid motion.
+@cuda.jit(device=True, inline=True)
+def _instance_aabb_dev(o, d, lower, upper, node):
+    near, far = 0.0, INF
+    for axis in range(3):
+        if abs(d[axis]) <= 1e-9:
+            if o[axis] < lower[node, axis] or o[axis] > upper[node, axis]:
+                return INF
+        else:
+            a = (lower[node, axis] - o[axis]) / d[axis]
+            b = (upper[node, axis] - o[axis]) / d[axis]
+            near, far = max(near, min(a, b)), min(far, max(a, b))
+    return near if near <= far else INF
+
+@cuda.jit(device=True, inline=True)
+def _instance_intersect_dev(o, d, geom, tri):
+    px = d[1] * geom[tri, 8] - d[2] * geom[tri, 7]
+    py = d[2] * geom[tri, 6] - d[0] * geom[tri, 8]
+    pz = d[0] * geom[tri, 7] - d[1] * geom[tri, 6]
+    det = geom[tri, 3] * px + geom[tri, 4] * py + geom[tri, 5] * pz
+    if abs(det) < 1e-7:
+        return INF
+    inv = 1.0 / det
+    tx, ty, tz = o[0] - geom[tri, 0], o[1] - geom[tri, 1], o[2] - geom[tri, 2]
+    u = (tx * px + ty * py + tz * pz) * inv
+    if u < 0 or u > 1:
+        return INF
+    qx = ty * geom[tri, 5] - tz * geom[tri, 4]
+    qy = tz * geom[tri, 3] - tx * geom[tri, 5]
+    qz = tx * geom[tri, 4] - ty * geom[tri, 3]
+    v = (d[0] * qx + d[1] * qy + d[2] * qz) * inv
+    t = (geom[tri, 6] * qx + geom[tri, 7] * qy + geom[tri, 8] * qz) * inv
+    return t if v >= 0 and u + v <= 1 and t > 1e-6 else INF
+
+@cuda.jit(device=True, inline=True)
+def _instance_ray_dev(o, d, geom, blo, bhi, bleft, bstart, bcount, bescape,
+                  roots, rotations, translations, tlo, thi, tleft, tstart,
+                  tcount, tescape, instance_order, active, emit_sid, min_sid):
+    best, hit, front, any_hit = INF, -1, 0, 0
+    node = 0 if len(tcount) else -1
+    while node >= 0:
+        successor = tescape[node]
+        if _instance_aabb_dev(o, d, tlo, thi, node) < best:
+            if tcount[node] == 0:
+                successor = tleft[node]
+            else:
+                for position in range(tstart[node], tstart[node] + tcount[node]):
+                    surface = instance_order[position]
+                    if surface == emit_sid or active[surface] == 0:
+                        continue
+                    dx, dy, dz = (o[0] - translations[surface, 0],
+                                  o[1] - translations[surface, 1],
+                                  o[2] - translations[surface, 2])
+                    # A proper rigid inverse preserves ray parameter distances.
+                    local_o = (rotations[surface, 0, 0] * dx + rotations[surface, 1, 0] * dy + rotations[surface, 2, 0] * dz,
+                               rotations[surface, 0, 1] * dx + rotations[surface, 1, 1] * dy + rotations[surface, 2, 1] * dz,
+                               rotations[surface, 0, 2] * dx + rotations[surface, 1, 2] * dy + rotations[surface, 2, 2] * dz)
+                    local_d = (rotations[surface, 0, 0] * d[0] + rotations[surface, 1, 0] * d[1] + rotations[surface, 2, 0] * d[2],
+                               rotations[surface, 0, 1] * d[0] + rotations[surface, 1, 1] * d[1] + rotations[surface, 2, 1] * d[2],
+                               rotations[surface, 0, 2] * d[0] + rotations[surface, 1, 2] * d[1] + rotations[surface, 2, 2] * d[2])
+                    blas_node = roots[surface]
+                    while blas_node >= 0:
+                        next_blas = bescape[blas_node]
+                        if _instance_aabb_dev(local_o, local_d, blo, bhi, blas_node) < best:
+                            if bcount[blas_node] == 0:
+                                next_blas = bleft[blas_node]
+                            else:
+                                for tri in range(bstart[blas_node], bstart[blas_node] + bcount[blas_node]):
+                                    distance = _instance_intersect_dev(local_o, local_d, geom, tri)
+                                    if distance < INF:
+                                        any_hit = 1
+                                        if surface >= min_sid and distance < best:
+                                            best, hit = distance, surface
+                                            front = int(-(local_d[0] * geom[tri, 9] + local_d[1] * geom[tri, 10]
+                                                          + local_d[2] * geom[tri, 11]) > 0)
+                        blas_node = next_blas
+        node = successor
+    return hit, front, any_hit
+
+@cuda.jit
+def kernel_trace_instanced_combined(orig, dirs, geom, blo, bhi, bleft, bstart, bcount, bescape,
+                                   roots, rotations, translations, tlo, thi, tleft, tstart,
+                                   tcount, tescape, instance_order, active, emit_sid, min_sid,
+                                   hit, front, mask):
+    k = cuda.grid(1)
+    if k < len(orig):
+        o = (orig[k, 0], orig[k, 1], orig[k, 2])
+        d = (dirs[k, 0], dirs[k, 1], dirs[k, 2])
+        hit[k], front[k], mask[k] = _instance_ray_dev(
+            o, d, geom, blo, bhi, bleft, bstart, bcount, bescape,
+            roots, rotations, translations, tlo, thi, tleft, tstart,
+            tcount, tescape, instance_order, active, emit_sid, min_sid)
