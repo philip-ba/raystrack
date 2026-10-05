@@ -1,17 +1,9 @@
-"""Direct area-pair sampling for a selected, potentially rare receiver."""
-
+"""CPU segment visibility and direct area-pair geometry weights."""
 from __future__ import annotations
-
 import math
-from typing import Dict, List, Tuple
-
 import numba as nb
 import numpy as np
-
-from .utils.prepared import PreparedSolver
-from .utils.halton import _build_halton_dim
-from .main import _prepared_locked
-
+from ..utils.halton import _build_halton_dim
 
 @nb.njit(parallel=True, cache=True)
 def _unoccluded_segments(source, target, scene_v0, scene_e1, scene_e2,
@@ -109,77 +101,42 @@ def _pair_uniforms(samples: int, rng: np.random.Generator,
     raise ValueError("sequence must be 'random' or 'shifted_halton'")
 
 
-@_prepared_locked
-def view_factor_targeted(
-    meshes: List[Tuple[str, np.ndarray, np.ndarray]],
-    sender: str,
-    receiver: str,
-    *,
-    samples: int = 8192,
-    seed: int = 1,
-    sequence: str = "shifted_halton",
-    prepared: PreparedSolver | None = None,
-) -> Dict[str, float]:
-    """Estimate one sender-to-receiver row with direct area-pair samples.
+class AreaPairWorkspace:
+    """Cache a full shifted replicate; chunking never changes its samples."""
+    def __init__(self):
+        self.key = None
 
-    Each sample connects uniformly sampled points on the two mesh surfaces.
-    The cosine-distance geometry term and receiver area supply the sampling
-    weight; every other triangle is tested for segment occlusion. This is a
-    CPU estimator for selected receivers, especially those hit by few ordinary
-    cosine rays. It does not compute the rest of the scene or sky matrix.
-    ``sequence='shifted_halton'`` uses independently shifted low-discrepancy
-    dimensions for each seed; ``'random'`` uses pseudorandom points.
-    """
-    if not isinstance(samples, int) or samples <= 0:
-        raise ValueError("samples must be a positive integer")
-    names = [name for name, _, _ in meshes]
-    if len(set(names)) != len(names):
-        raise ValueError("mesh names must be unique")
-    if sender not in names or receiver not in names or sender == receiver:
-        raise ValueError("sender and receiver must be different mesh names")
-    if prepared is not None:
-        if not isinstance(prepared, PreparedSolver) or len(prepared.meshes) != len(meshes):
-            raise ValueError("prepared must contain the same ordered meshes")
-        prepared.validate_meshes(meshes)
-
-    rng = np.random.default_rng(seed)
-    uniforms = _pair_uniforms(samples, rng, sequence)
-    source_idx = names.index(sender)
-    target_idx = names.index(receiver)
-    source, source_normals, source_tri, _ = _sample_surface(meshes[source_idx], uniforms[:, :3])
-    target, target_normals, target_tri, target_area = _sample_surface(meshes[target_idx], uniforms[:, 3:])
-    displacement = target - source
-    distance_sq = np.sum(displacement * displacement, axis=1)
-    distance = np.sqrt(distance_sq)
-    safe_distance = np.maximum(distance, 1e-12)
-    cos_source = np.einsum("ij,ij->i", source_normals, displacement) / safe_distance
-    cos_target = -np.einsum("ij,ij->i", target_normals, displacement) / safe_distance
-    eligible = (cos_source > 0.0) & (distance_sq > 1e-24) & (cos_target != 0.0)
-    if not np.any(eligible):
-        return {}
-
-    prepared_solver = prepared if prepared is not None else PreparedSolver(meshes)
-    scene = prepared_solver.get_scene(use_bvh=False)
-    offset = np.cumsum([0] + [len(faces) for _, _, faces in meshes])
-    visible = _unoccluded_segments(
-        source, target,
-        np.asarray(scene.v0, dtype=np.float64),
-        np.asarray(scene.e1, dtype=np.float64),
-        np.asarray(scene.e2, dtype=np.float64),
-        source_tri + offset[source_idx], target_tri + offset[target_idx], eligible,
-    )
-    weights = np.zeros(samples, dtype=np.float64)
-    valid = eligible & (visible != 0)
-    weights[valid] = (target_area * cos_source[valid] * np.abs(cos_target[valid])
-                      / (math.pi * distance_sq[valid]))
-    front = float(np.sum(weights[cos_target > 0.0]) / samples)
-    back = float(np.sum(weights[cos_target < 0.0]) / samples)
-    row: Dict[str, float] = {}
-    if front > 0.0:
-        row[f"{receiver}_front"] = front
-    if back > 0.0:
-        row[f"{receiver}_back"] = back
-    return row
-
-
-__all__ = ["view_factor_targeted"]
+    def trace(self, prepared, source_index, target_index, cfg, iteration, ray_count, ray_offset):
+        key = (id(prepared), prepared.version, source_index, target_index,
+               cfg.pair_samples, cfg.seed, cfg.sequence, cfg.flip_faces, iteration)
+        if key != self.key:
+            meshes = prepared.meshes
+            uniforms = _pair_uniforms(cfg.pair_samples, np.random.default_rng(cfg.seed + iteration), cfg.sequence)
+            source, sn, source_tri, _ = _sample_surface(meshes[source_index], uniforms[:, :3])
+            target, tn, target_tri, area = _sample_surface(meshes[target_index], uniforms[:, 3:])
+            if cfg.flip_faces:
+                sn = -sn
+            disp = target - source
+            d2 = np.sum(disp * disp, axis=1)
+            distance = np.maximum(np.sqrt(d2), 1e-12)
+            cs = np.einsum("ij,ij->i", sn, disp) / distance
+            ct = -np.einsum("ij,ij->i", tn, disp) / distance
+            eligible = (cs > 0) & (d2 > 1e-24) & (ct != 0)
+            scene = prepared.get_scene(use_bvh=False)
+            offsets = np.cumsum([0] + [len(f) for _, _, f in meshes])
+            self.source, self.target = source, target
+            self.st, self.tt = source_tri + offsets[source_index], target_tri + offsets[target_index]
+            self.scene, self.eligible, self.ct = scene, eligible, ct
+            self.weights = np.zeros(cfg.pair_samples, np.float64)
+            self.weights[eligible] = area * cs[eligible] * np.abs(ct[eligible]) / (math.pi * d2[eligible])
+            self.key = key
+        sl = slice(ray_offset, ray_offset + ray_count)
+        visible = _unoccluded_segments(self.source[sl], self.target[sl],
+            np.asarray(self.scene.v0, np.float64), np.asarray(self.scene.e1, np.float64),
+            np.asarray(self.scene.e2, np.float64), self.st[sl], self.tt[sl], self.eligible[sl])
+        weights = self.weights[sl] * visible
+        self.last_weights, self.last_sides = weights, self.ct[sl]
+        front, back = np.zeros(len(prepared.meshes), np.float64), np.zeros(len(prepared.meshes), np.float64)
+        front[target_index] = np.sum(weights[self.ct[sl] > 0])
+        back[target_index] = np.sum(weights[self.ct[sl] < 0])
+        return front, back, np.zeros(1, np.float64)

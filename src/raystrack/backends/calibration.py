@@ -85,7 +85,7 @@ def _candidates(mode):
     if cuda.is_available() and not config.ENABLE_CUDASIM:
         candidates.append("cuda")
     try:
-        from .utils.taichi_trace import get_taichi_backend
+        from ..utils.taichi_trace import get_taichi_backend
         get_taichi_backend()
         candidates.append("taichi")
     except (RuntimeError, ImportError):
@@ -95,8 +95,8 @@ def _candidates(mode):
 
 def _probe(prepared, params, backend, index, emitter, scene, *, include_matrix,
            include_sky, discrete):
-    from .execution import _CpuWorkspace, _CudaWorkspace
-    from .main import _build_emitter_surface_mask
+    from .workspaces import workspace_for
+    from ..engine.sampling import _build_emitter_surface_mask
     centers, extents = prepared.get_mesh_bounds()
     active = _build_emitter_surface_mask(index, emitter, centers, extents)
     cp_grid = np.asarray([0.321, 0.713], np.float32)
@@ -106,26 +106,9 @@ def _probe(prepared, params, backend, index, emitter, scene, *, include_matrix,
                    include_sky=include_sky, discrete=discrete,
                    gpu_raygen=params.gpu_raygen,
                    flip_faces=bool(getattr(params, "flip_faces", False)))
-    cache = getattr(prepared, "_execution_workspace_cache", None)
-    if cache is None:
-        cache = prepared._execution_workspace_cache = {}
-    if backend == "cpu":
-        workspace = cache.setdefault("cpu", _CpuWorkspace())
-        return lambda count: workspace.trace(scene, emitter, len(prepared.meshes),
-            cp_grid=cp_grid, cp_dims=cp_dims, ray_count=count, ray_offset=0, **options)
-    if backend == "cuda":
-        from numba import cuda
-        key = ("cuda", *prepared._cuda_key(cuda), params.cuda_async)
-        if key not in cache:
-            cache[key] = _CudaWorkspace(params.cuda_async)
-        workspace = cache[key]
-        return lambda count: workspace.trace_many(prepared, index, scene, emitter,
-            len(prepared.meshes), [(cp_grid, cp_dims, count, 0)], **options)
-    from .utils.taichi_trace import get_taichi_backend
-    workspace = get_taichi_backend(arch="auto" if backend == "taichi" else backend)
-    portable_options = {k: v for k, v in options.items() if k not in ("samples", "flip_faces")}
-    return lambda count: workspace.trace_batch(scene, emitter, cp_grid=cp_grid,
-        cp_dims=cp_dims, ray_count=count, ray_offset=0, **portable_options)
+    workspace = workspace_for(prepared, backend, params)
+    return lambda count: workspace.trace_many(prepared, index, scene, emitter,
+        len(prepared.meshes), [(cp_grid, cp_dims, count, 0)], **options)
 
 
 def _calibrate(prepared, params, *, include_matrix, include_sky, discrete,
@@ -137,7 +120,7 @@ def _calibrate(prepared, params, *, include_matrix, include_sky, discrete,
     if emitter is None:
         return ExecutionPlan("cpu" if mode == "auto" else resolve_backend(mode),
                              params.ray_batch_size, reason="no nonempty selected emitters")
-    from .main import _select_bvh
+    from ..engine.sampling import _select_bvh
     use_bvh = _select_bvh(params.bvh, prepared.total_faces)
     scene = (prepared.get_instanced_scene() if getattr(prepared, "acceleration", None) == "instanced"
              else prepared.get_scene(use_bvh=use_bvh))
@@ -195,41 +178,20 @@ def _calibrate(prepared, params, *, include_matrix, include_sky, discrete,
                          (time.perf_counter() - started) * 1000)
 
 
-def warmup(prepared, matrix_params=None, sky_params=None, *, repeats=3,
+def warmup(prepared, params, *, include_matrix=True, include_sky=False, discrete=False, repeats=3,
            max_probe_rays=16384, target_batch_ms=10.0) -> ExecutionPlan:
-    """Compile representative kernels and measure a reusable execution plan.
-
-    Explicit devices stay explicit. Calibration rays are reported separately
-    and never added to estimates or resumable accumulators. The time budget
-    is soft because a compilation or an already running probe must finish.
-    """
-    from .params import MatrixParams, SkyParams
-    from .utils.prepared import PreparedSolver
-    if not isinstance(prepared, PreparedSolver):
-        raise TypeError("prepared must be a PreparedSolver")
-    if matrix_params is None and sky_params is None:
-        matrix_params = MatrixParams()
-    for params, expected in ((matrix_params, MatrixParams), (sky_params, SkyParams)):
-        if params is not None and not isinstance(params, expected):
-            raise TypeError(f"expected {expected.__name__}")
-    if matrix_params is not None and sky_params is not None:
-        from .main import outside_workflow_shareable
-        if not outside_workflow_shareable(matrix_params, sky_params):
-            raise ValueError("warmup requires compatible matrix and sky parameters; warm each pass separately")
-    params = matrix_params if matrix_params is not None else sky_params
-    from .execution import validate_controls
-    validate_controls(params)
+    """Measure diagnostic work separately from solve rays."""
     with prepared.solve_lock:
-        plan = _calibrate(prepared, params, include_matrix=matrix_params is not None,
-                          include_sky=sky_params is not None,
-                          discrete=bool(sky_params and sky_params.discrete), repeats=repeats,
+        plan = _calibrate(prepared, params, include_matrix=include_matrix,
+                          include_sky=include_sky,
+                          discrete=discrete, repeats=repeats,
                           max_probe_rays=max_probe_rays, target_batch_ms=target_batch_ms)
         _, _, n_once = _representative(prepared, params)
         cache = getattr(prepared, "_tuning_cache", None)
         if cache is None:
             cache = prepared._tuning_cache = {}
-        key = _key(prepared, params, matrix_params is not None, sky_params is not None,
-                   bool(sky_params and sky_params.discrete), n_once)
+        key = _key(prepared, params, include_matrix, include_sky,
+                   discrete, n_once)
         cache[key] = plan
         # Bound plans across changing topology/density in long live sessions.
         while len(cache) > 16:

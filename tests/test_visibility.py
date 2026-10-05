@@ -5,8 +5,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from raystrack import (MatrixParams, SkyParams, view_factor_matrix, view_factor_targeted,
-                       view_factor_outside_workflow, view_factor_to_tregenza_sky)
+from tests.v2_cases import MatrixCase, SkyCase, matrix_case, pair_case, outside_case, sky_case
 
 
 def square(name: str, height: float, radius: float):
@@ -24,7 +23,7 @@ class VisibilityTests(unittest.TestCase):
         emitter = square("emitter", 0, 1)
         tiny = square("tiny", 1, 0.005)
         tiny = (tiny[0], tiny[1], tiny[2][:, ::-1].copy())
-        row = view_factor_targeted([emitter, tiny], "emitter", "tiny",
+        row = pair_case([emitter, tiny], "emitter", "tiny",
                                    samples=8192, seed=2)
         self.assertEqual(set(row), {"tiny_front"})
 
@@ -36,55 +35,49 @@ class VisibilityTests(unittest.TestCase):
         self.assertLess(abs(row["tiny_front"] - reference) / reference, 0.04)
 
         blocker = square("blocker", 0.5, 2)
-        blocked = view_factor_targeted([emitter, blocker, tiny], "emitter", "tiny",
+        blocked = pair_case([emitter, blocker, tiny], "emitter", "tiny",
                                        samples=1024, seed=2)
         self.assertEqual(blocked, {})
 
         upward = square("tiny", 1, 0.005)
-        back = view_factor_targeted([emitter, upward], "emitter", "tiny",
+        back = pair_case([emitter, upward], "emitter", "tiny",
                                     samples=1024, seed=2)
         self.assertEqual(set(back), {"tiny_back"})
 
         with self.assertRaisesRegex(ValueError, "sequence"):
-            view_factor_targeted([emitter, tiny], "emitter", "tiny",
+            pair_case([emitter, tiny], "emitter", "tiny",
                                  samples=16, sequence="unknown")
         with self.assertRaisesRegex(ValueError, "unique"):
-            view_factor_targeted([emitter, emitter], "emitter", "tiny",
+            pair_case([emitter, emitter], "emitter", "tiny",
                                  samples=16)
 
     def test_minimum_ray_budget_prevents_zero_hit_early_stop(self):
+        from raystrack import Solver, Query
+        from tests.v2_cases import scene_for, options_for
         meshes = [square("emitter", 0, 1), square("tiny", 1, 1e-6)]
-        base = dict(samples=4, rays=8, seed=5, bvh="off", device="cpu",
-                    min_iters=2, max_iters=6, tol=1.0, reciprocity=False)
-        with patch("raystrack.main._log") as log:
-            view_factor_matrix(meshes, MatrixParams(**base))
-        self.assertIn("2 iter", log.call_args_list[0].args[0])
-
-        with patch("raystrack.main._log") as log:
-            scene = view_factor_matrix(
-                meshes, MatrixParams(**base, min_total_rays=640))
-        self.assertIn("5 iter", log.call_args_list[0].args[0])
-        self.assertEqual(scene["emitter"], {})
-
-        sky_base = {key: value for key, value in base.items()
-                    if key != "reciprocity"}
-        with patch("raystrack.main._log") as log:
-            view_factor_to_tregenza_sky(
-                meshes, SkyParams(**sky_base, min_total_rays=640))
-        self.assertIn("5 iter", log.call_args_list[0].args[0])
-
-        with self.assertRaisesRegex(ValueError, "min_total_rays"):
-            view_factor_matrix(meshes, MatrixParams(min_total_rays=-1))
+        base = MatrixCase(samples=4, rays=8, seed=5, bvh="off", device="cpu",
+                          min_iters=2, max_iters=6, tol=1, reciprocity=False)
+        with Solver(scene_for(meshes), device="cpu", bvh="off", auto_tune=False) as solver:
+            early = solver.solve(Query.row("emitter"), options_for(base))
+            self.assertEqual(early.statistics["emitters"]["emitter"]["replicates"], 2)
+            base.min_total_rays = 640
+            floor = solver.solve(Query.row("emitter"), options_for(base))
+            sky = solver.solve(Query.sky(["emitter"]), options_for(base))
+            self.assertEqual(floor.statistics["emitters"]["emitter"]["replicates"], 5)
+            self.assertEqual(sky.statistics["emitters"]["emitter"]["replicates"], 5)
+            self.assertFalse(any(value for channel, value in floor.row("emitter").items() if channel.kind == "surface"))
+        with self.assertRaisesRegex(ValueError, "min_rays"):
+            options_for(MatrixCase(min_total_rays=-1))
 
     def test_bidirectional_front_exchange_is_reciprocal(self):
         lower = square("lower", 0, 1)
         upper = square("upper", 1, 2)
         upper = (upper[0], upper[1], upper[2][:, ::-1].copy())
         meshes = [lower, upper]
-        params = MatrixParams(samples=4, rays=32, seed=8, bvh="off",
+        params = MatrixCase(samples=4, rays=32, seed=8, bvh="off",
                               device="cpu", reciprocity_mode="bidirectional",
                               min_iters=4, max_iters=4)
-        scene = view_factor_matrix(meshes, params)
+        scene = matrix_case(meshes, params)
         self.assertGreater(scene["lower"]["upper_front"], 0.0)
         self.assertAlmostEqual(
             4.0 * scene["lower"]["upper_front"],
@@ -93,9 +86,9 @@ class VisibilityTests(unittest.TestCase):
         self.assertFalse(any(key.endswith("_back") for row in scene.values()
                              for key in row))
 
-        sky_params = SkyParams(samples=4, rays=32, seed=8, bvh="off",
+        sky_params = SkyCase(samples=4, rays=32, seed=8, bvh="off",
                                device="cpu", min_iters=4, max_iters=4)
-        shared, _, _ = view_factor_outside_workflow(
+        shared, _, _ = outside_case(
             meshes, matrix_params=params, sky_params=sky_params
         )
         self.assertAlmostEqual(
@@ -104,12 +97,17 @@ class VisibilityTests(unittest.TestCase):
         )
 
     def test_invalid_bidirectional_settings(self):
+        from raystrack import Solver, Query, Postprocessing, SolveOptions
+        from tests.v2_cases import scene_for
         meshes = [square("lower", 0, 1), square("upper", 1, 1)]
-        with self.assertRaisesRegex(ValueError, "reciprocity_mode"):
-            view_factor_matrix(meshes, MatrixParams(reciprocity_mode="unknown"))
-        with self.assertRaisesRegex(ValueError, "requires reciprocity"):
-            view_factor_matrix(meshes, MatrixParams(
-                reciprocity=False, reciprocity_mode="bidirectional"))
+        with self.assertRaisesRegex(ValueError, "reciprocity"):
+            Postprocessing(reciprocity="unknown")
+        with Solver(scene_for(meshes), device="cpu") as solver:
+            with self.assertRaisesRegex(ValueError, "all sender"):
+                solver.start(Query.row("lower"), SolveOptions(postprocessing=Postprocessing("bidirectional")))
+            with self.assertRaisesRegex(ValueError, "receiver sides"):
+                solver.start(Query.matrix(receiver_sides=("back",)),
+                             SolveOptions(postprocessing=Postprocessing("bidirectional")))
 
     def test_reciprocity_does_not_see_through_lower_index_occluder(self):
         # Every ray from emitter to far must cross the middle square first.
@@ -117,16 +115,16 @@ class VisibilityTests(unittest.TestCase):
                   square("far", 2, 1)]
         for bvh in ("off", "builtin"):
             with self.subTest(bvh=bvh):
-                matrix_params = MatrixParams(samples=4, rays=16, seed=3,
+                matrix_params = MatrixCase(samples=4, rays=16, seed=3,
                                              bvh=bvh, device="cpu", reciprocity=True,
                                              min_iters=2, max_iters=2)
-                scene = view_factor_matrix(meshes, params=matrix_params)
+                scene = matrix_case(meshes, params=matrix_params)
                 self.assertEqual(scene["emitter"].get("far_front", 0.0), 0.0)
                 self.assertEqual(scene["emitter"].get("far_back", 0.0), 0.0)
 
-                sky_params = SkyParams(samples=4, rays=16, seed=3, bvh=bvh,
+                sky_params = SkyCase(samples=4, rays=16, seed=3, bvh=bvh,
                                        device="cpu", min_iters=2, max_iters=2)
-                combined, _, _ = view_factor_outside_workflow(
+                combined, _, _ = outside_case(
                     meshes, matrix_params=matrix_params, sky_params=sky_params
                 )
                 self.assertEqual(combined["emitter"].get("far_front", 0.0), 0.0)

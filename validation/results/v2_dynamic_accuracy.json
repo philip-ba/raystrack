@@ -1,0 +1,984 @@
+{
+  "settings": {
+    "samples": 256,
+    "rays": 256,
+    "iterations": 64,
+    "seeds": [
+      11,
+      1009,
+      10007
+    ],
+    "sampling_mode": "fair",
+    "absolute_tolerance_per_seed": 0.001
+  },
+  "notes": [
+    "V2 Query.row selects the emitter; moving square cases reuse one Solver and scene acceleration.",
+    "Every seed runs the full iteration count without convergence early stopping.",
+    "Disc meshes approximate curved boundaries with 256 segments.",
+    "Elapsed times include preparation/cache loading and compilation; not a speed comparison.",
+    "This does not validate uncertainty coverage or all supported hardware."
+  ],
+  "measurements": [
+    {
+      "case": "moving_square_gap_0.5",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "flat",
+      "scene_revision": 1,
+      "analytical": 0.41525328357714675,
+      "mean_view_factor": 0.4153207143147786,
+      "max_absolute_error": 7.355014782883806e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.4153268337249756,
+          "absolute_error": 7.355014782883806e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 476.87669999868376
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.4153120517730713,
+          "absolute_error": 5.876819592454119e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 104.13809999954537
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.41532325744628906,
+          "absolute_error": 6.997386914231463e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 137.27429999926244
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_1",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "flat",
+      "scene_revision": 2,
+      "analytical": 0.19982489569838746,
+      "mean_view_factor": 0.19973262151082358,
+      "max_absolute_error": 0.00026210768874390666,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.19956278800964355,
+          "absolute_error": 0.00026210768874390666,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 94.35169999778736
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19994282722473145,
+          "absolute_error": 0.00011793152634398396,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 93.63779999694088
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.1996922492980957,
+          "absolute_error": 0.00013264640029175823,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 80.27080000101705
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_2",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "flat",
+      "scene_revision": 3,
+      "analytical": 0.0685895888185526,
+      "mean_view_factor": 0.06856425603230794,
+      "max_absolute_error": 4.520100116978121e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.0685877799987793,
+          "absolute_error": 1.8088197732968325e-06,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 74.42179999998189
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.06856060028076172,
+          "absolute_error": 2.8988537790874958e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 70.00189999962458
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.06854438781738281,
+          "absolute_error": 4.520100116978121e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 79.59119999941322
+        }
+      ]
+    },
+    {
+      "case": "parallel_rectangle_2x1",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "flat",
+      "scene_revision": 0,
+      "analytical": 0.28587538485071473,
+      "mean_view_factor": 0.28597347497489367,
+      "max_absolute_error": 0.00012116579761939361,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.2859889356760988,
+          "absolute_error": 0.0001135508253840567,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 220.82360000058543
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.2859965506483341,
+          "absolute_error": 0.00012116579761939361,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 253.33089999912772
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.2859349386002481,
+          "absolute_error": 5.955374953336978e-05,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 223.37440000046627
+        }
+      ]
+    },
+    {
+      "case": "coaxial_discs_256_segments",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "flat",
+      "scene_revision": 0,
+      "analytical": 0.3819660112501051,
+      "mean_view_factor": 0.3819828766752131,
+      "max_absolute_error": 6.653057603195345e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.3819602576220645,
+          "absolute_error": 5.753628040616743e-06,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 2030.5076000004192
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.38203254182613705,
+          "absolute_error": 6.653057603195345e-05,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 1900.3077000015764
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.3819558305774376,
+          "absolute_error": 1.0180672667503554e-05,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 1963.315100001637
+        }
+      ]
+    },
+    {
+      "case": "perpendicular_square_rectangle",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "flat",
+      "scene_revision": 0,
+      "analytical": 0.20004377607540313,
+      "mean_view_factor": 0.20003310839335123,
+      "max_absolute_error": 7.949117855254872e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.20009946823120117,
+          "absolute_error": 5.569215579803721e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 86.37699999962933
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19996428489685059,
+          "absolute_error": 7.949117855254872e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 88.18539999992936
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.20003557205200195,
+          "absolute_error": 8.204023401181537e-06,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 83.81659999940894
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_0.5",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "instanced",
+      "scene_revision": 1,
+      "analytical": 0.41525328357714675,
+      "mean_view_factor": 0.4153207143147786,
+      "max_absolute_error": 7.355014782883806e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.4153268337249756,
+          "absolute_error": 7.355014782883806e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 110.33379999935278
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.4153120517730713,
+          "absolute_error": 5.876819592454119e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 90.77809999871533
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.41532325744628906,
+          "absolute_error": 6.997386914231463e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 92.07310000056168
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_1",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "instanced",
+      "scene_revision": 2,
+      "analytical": 0.19982489569838746,
+      "mean_view_factor": 0.19973262151082358,
+      "max_absolute_error": 0.00026210768874390666,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.19956278800964355,
+          "absolute_error": 0.00026210768874390666,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 81.66040000287467
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19994282722473145,
+          "absolute_error": 0.00011793152634398396,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 77.82250000309432
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.1996922492980957,
+          "absolute_error": 0.00013264640029175823,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 86.36180000030436
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_2",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "instanced",
+      "scene_revision": 3,
+      "analytical": 0.0685895888185526,
+      "mean_view_factor": 0.06856425603230794,
+      "max_absolute_error": 4.520100116978121e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.0685877799987793,
+          "absolute_error": 1.8088197732968325e-06,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 75.3435000005993
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.06856060028076172,
+          "absolute_error": 2.8988537790874958e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 63.60499999937019
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.06854438781738281,
+          "absolute_error": 4.520100116978121e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 75.0577999970119
+        }
+      ]
+    },
+    {
+      "case": "parallel_rectangle_2x1",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "instanced",
+      "scene_revision": 0,
+      "analytical": 0.28587538485071473,
+      "mean_view_factor": 0.28597347497489367,
+      "max_absolute_error": 0.00012116579761939361,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.2859889356760988,
+          "absolute_error": 0.0001135508253840567,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 169.61730000184616
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.2859965506483341,
+          "absolute_error": 0.00012116579761939361,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 209.01379999850178
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.2859349386002481,
+          "absolute_error": 5.955374953336978e-05,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 189.49889999930747
+        }
+      ]
+    },
+    {
+      "case": "coaxial_discs_256_segments",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "instanced",
+      "scene_revision": 0,
+      "analytical": 0.3819660112501051,
+      "mean_view_factor": 0.3819831669732214,
+      "max_absolute_error": 6.696602304440136e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.3819602576220645,
+          "absolute_error": 5.753628040616743e-06,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 815.3931999986526
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.3820329772731495,
+          "absolute_error": 6.696602304440136e-05,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 795.6242999971437
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.38195626602445004,
+          "absolute_error": 9.745225655055645e-06,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 1382.5729000018327
+        }
+      ]
+    },
+    {
+      "case": "perpendicular_square_rectangle",
+      "device": "cpu",
+      "resolved_backend": "cpu",
+      "acceleration": "instanced",
+      "scene_revision": 0,
+      "analytical": 0.20004377607540313,
+      "mean_view_factor": 0.20003310839335123,
+      "max_absolute_error": 7.949117855254872e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.20009946823120117,
+          "absolute_error": 5.569215579803721e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 109.38700000042445
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19996428489685059,
+          "absolute_error": 7.949117855254872e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 100.52530000029947
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.20003557205200195,
+          "absolute_error": 8.204023401181537e-06,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 95.9487000000081
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_0.5",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "flat",
+      "scene_revision": 1,
+      "analytical": 0.41525328357714675,
+      "mean_view_factor": 0.4153207143147786,
+      "max_absolute_error": 7.355014782883806e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.4153268337249756,
+          "absolute_error": 7.355014782883806e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 687.1043000028294
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.4153120517730713,
+          "absolute_error": 5.876819592454119e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 47.512100001767976
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.41532325744628906,
+          "absolute_error": 6.997386914231463e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 50.02049999893643
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_1",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "flat",
+      "scene_revision": 2,
+      "analytical": 0.19982489569838746,
+      "mean_view_factor": 0.19973262151082358,
+      "max_absolute_error": 0.00026210768874390666,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.19956278800964355,
+          "absolute_error": 0.00026210768874390666,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 49.06940000000759
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19994282722473145,
+          "absolute_error": 0.00011793152634398396,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 42.32839999895077
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.1996922492980957,
+          "absolute_error": 0.00013264640029175823,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 91.43130000302335
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_2",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "flat",
+      "scene_revision": 3,
+      "analytical": 0.0685895888185526,
+      "mean_view_factor": 0.06856417655944824,
+      "max_absolute_error": 4.520100116978121e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.0685875415802002,
+          "absolute_error": 2.047238352398395e-06,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 102.89599999669008
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.06856060028076172,
+          "absolute_error": 2.8988537790874958e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 69.23299999834853
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.06854438781738281,
+          "absolute_error": 4.520100116978121e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 88.49970000301255
+        }
+      ]
+    },
+    {
+      "case": "parallel_rectangle_2x1",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "flat",
+      "scene_revision": 0,
+      "analytical": 0.28587538485071473,
+      "mean_view_factor": 0.28597343651543794,
+      "max_absolute_error": 0.00012116579761939361,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.2859888202977316,
+          "absolute_error": 0.00011343544701686303,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 187.83040000198525
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.2859965506483341,
+          "absolute_error": 0.00012116579761939361,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 107.11929999888525
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.2859349386002481,
+          "absolute_error": 5.955374953336978e-05,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 125.06769999890821
+        }
+      ]
+    },
+    {
+      "case": "coaxial_discs_256_segments",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "flat",
+      "scene_revision": 0,
+      "analytical": 0.3819660112501051,
+      "mean_view_factor": 0.38198285248371233,
+      "max_absolute_error": 6.66031505340281e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.38196003989855826,
+          "absolute_error": 5.9713515468406975e-06,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 501.9711999993888
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.3820326144006391,
+          "absolute_error": 6.66031505340281e-05,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 392.9419999985839
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.38195590315193967,
+          "absolute_error": 1.0108098165428903e-05,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 381.26720000218484
+        }
+      ]
+    },
+    {
+      "case": "perpendicular_square_rectangle",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "flat",
+      "scene_revision": 0,
+      "analytical": 0.20004377607540313,
+      "mean_view_factor": 0.20003310839335123,
+      "max_absolute_error": 7.949117855254872e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.20009946823120117,
+          "absolute_error": 5.569215579803721e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 114.43949999738834
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19996428489685059,
+          "absolute_error": 7.949117855254872e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 85.06409999972675
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.20003557205200195,
+          "absolute_error": 8.204023401181537e-06,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 79.33659999980591
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_0.5",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "instanced",
+      "scene_revision": 1,
+      "analytical": 0.41525328357714675,
+      "mean_view_factor": 0.41532063484191895,
+      "max_absolute_error": 7.355014782883806e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.4153268337249756,
+          "absolute_error": 7.355014782883806e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 292.68660000161617
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.4153120517730713,
+          "absolute_error": 5.876819592454119e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 111.15330000029644
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.41532301902770996,
+          "absolute_error": 6.973545056321306e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 200.36240000263206
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_1",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "instanced",
+      "scene_revision": 2,
+      "analytical": 0.19982489569838746,
+      "mean_view_factor": 0.19973262151082358,
+      "max_absolute_error": 0.00026210768874390666,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.19956278800964355,
+          "absolute_error": 0.00026210768874390666,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 169.47979999895324
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19994282722473145,
+          "absolute_error": 0.00011793152634398396,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 96.01800000018557
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.1996922492980957,
+          "absolute_error": 0.00013264640029175823,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 96.0616000011214
+        }
+      ]
+    },
+    {
+      "case": "moving_square_gap_2",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "instanced",
+      "scene_revision": 3,
+      "analytical": 0.0685895888185526,
+      "mean_view_factor": 0.06856417655944824,
+      "max_absolute_error": 4.520100116978121e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.0685875415802002,
+          "absolute_error": 2.047238352398395e-06,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 102.01750000123866
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.06856060028076172,
+          "absolute_error": 2.8988537790874958e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 129.38999999823864
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.06854438781738281,
+          "absolute_error": 4.520100116978121e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 112.20390000016778
+        }
+      ]
+    },
+    {
+      "case": "parallel_rectangle_2x1",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "instanced",
+      "scene_revision": 0,
+      "analytical": 0.28587538485071473,
+      "mean_view_factor": 0.2859733980559822,
+      "max_absolute_error": 0.00012105041925219995,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.2859888202977316,
+          "absolute_error": 0.00011343544701686303,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 129.09790000048815
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.28599643526996693,
+          "absolute_error": 0.00012105041925219995,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 123.17689999690629
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.2859349386002481,
+          "absolute_error": 5.955374953336978e-05,
+          "passed": true,
+          "rays": 8667136,
+          "status": "max_iters",
+          "elapsed_ms": 109.62579999977606
+        }
+      ]
+    },
+    {
+      "case": "coaxial_discs_256_segments",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "instanced",
+      "scene_revision": 0,
+      "analytical": 0.3819660112501051,
+      "mean_view_factor": 0.38198285248371233,
+      "max_absolute_error": 6.66031505340281e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.38196003989855826,
+          "absolute_error": 5.9713515468406975e-06,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 170.89779999878374
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.3820326144006391,
+          "absolute_error": 6.66031505340281e-05,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 160.7218000026478
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.38195590315193967,
+          "absolute_error": 1.0108098165428903e-05,
+          "passed": true,
+          "rays": 13778944,
+          "status": "max_iters",
+          "elapsed_ms": 172.96859999987646
+        }
+      ]
+    },
+    {
+      "case": "perpendicular_square_rectangle",
+      "device": "vulkan",
+      "resolved_backend": "vulkan",
+      "acceleration": "instanced",
+      "scene_revision": 0,
+      "analytical": 0.20004377607540313,
+      "mean_view_factor": 0.20003310839335123,
+      "max_absolute_error": 7.949117855254872e-05,
+      "passed": true,
+      "seeds": [
+        {
+          "seed": 11,
+          "view_factor": 0.20009946823120117,
+          "absolute_error": 5.569215579803721e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 86.0199000017019
+        },
+        {
+          "seed": 1009,
+          "view_factor": 0.19996428489685059,
+          "absolute_error": 7.949117855254872e-05,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 109.73319999902742
+        },
+        {
+          "seed": 10007,
+          "view_factor": 0.20003557205200195,
+          "absolute_error": 8.204023401181537e-06,
+          "passed": true,
+          "rays": 4194304,
+          "status": "max_iters",
+          "elapsed_ms": 67.16599999708706
+        }
+      ]
+    }
+  ],
+  "all_passed": true
+}

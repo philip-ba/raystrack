@@ -132,41 +132,21 @@ def run_raystrack(
     min_iters: int = 5,
 ) -> RaystrackRun:
     ensure_repo_on_path()
-    import raystrack.main as raystrack_main
-    from raystrack import view_factor_matrix
-    from raystrack.params import MatrixParams
+    from raystrack import Mesh as Geometry, Scene, Solver, Query, SolveOptions, Sampling, Accuracy
 
-    log_messages: List[str] = []
-    old_log = raystrack_main._log
-    raystrack_main._log = log_messages.append
-    params = MatrixParams(
-        samples=samples,
-        rays=rays,
-        seed=seed,
-        bvh="builtin",
-        device="cpu",
-        cuda_async=False,
-        gpu_raygen=False,
-        max_iters=max_iters,
-        min_iters=min_iters,
-        tol=tol,
-        tol_mode="stderr",
-        convergence_interval=1,
-        reciprocity=False,
-        enforce_reciprocity_rowsum=False,
-        flip_faces=False,
-    )
-    try:
-        vf = view_factor_matrix(meshes, params=params)
-    finally:
-        raystrack_main._log = old_log
-
-    iterations: Dict[str, int] = {}
-    pattern = re.compile(r"\[\s*(?P<name>[^\]]+?)\s*\]\s+(?P<iters>\d+)\s+iter")
-    for msg in log_messages:
-        match = pattern.search(msg)
-        if match:
-            iterations[match.group("name")] = int(match.group("iters"))
+    current = Scene.from_meshes({name: Geometry(v, f) for name, v, f in meshes})
+    options = SolveOptions(Sampling(density=samples, rays_per_cell=rays, seed=seed),
+                           Accuracy(max_replicates=max_iters, min_replicates=min_iters,
+                                    tolerance=tol, mode="stderr"))
+    with Solver(current, device="cpu", bvh="builtin", auto_tune=False,
+                cuda_async=False, gpu_raygen=False) as solver:
+        result = solver.solve(Query.matrix(), options)
+    vf = {sender: {f"{channel.surface_id}_{channel.side}": value
+                   for channel, value in result.row(sender).items()
+                   if channel.kind == "surface" and value > 0}
+          for sender in result.sender_ids}
+    iterations = {sender: info["replicates"]
+                  for sender, info in result.statistics["emitters"].items()}
 
     active_iters = [value for value in iterations.values() if value > 0]
     converged_before_max = bool(active_iters) and all(value < max_iters for value in active_iters)

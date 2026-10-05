@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "raystrack"
 version = "1.0.2"
-description = "Lightweight Monte-Carlo view-factor solver with CPU, CUDA and BVH paths"
+description = "Reusable scene and solver API for Monte Carlo view factors on CPU, CUDA and portable GPUs"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

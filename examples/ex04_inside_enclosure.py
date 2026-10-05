@@ -5,7 +5,7 @@ ex04_inside_enclosure
 Constructs a simple 6-face box (unit cube) with outward-facing normals,
 then computes the inside view-factor matrix by enabling `flip_faces=True`.
 
-Results are printed and saved to `inside_vf_matrix.json` in this folder.
+Results are printed and saved to a new versioned .raystrack directory.
 
 Inputs and parameters to know:
 - Geometry is created on the fly by `make_box_unit_cube`; edit the vertex
@@ -66,45 +66,16 @@ def make_box_unit_cube():
 
 
 def main():
-    ensure_repo_on_path()
-    from raystrack import view_factor_matrix
-    from raystrack.io import save_vf_matrix_json
-    from raystrack.params import MatrixParams
-    meshes = make_box_unit_cube()
-
-    # Use flip_faces=True so emitters shoot rays inward (inside the enclosure)
-    params = MatrixParams(
-        samples=16,                 # modest density for a quick example
-        rays=128,
-        seed=42,
-        bvh="auto",
-        device="auto",
-        flip_faces=True,
-        reciprocity=False,         
-        enforce_reciprocity_rowsum=False,  
-        max_iters=1000,
-        tol=1e-3,
-        tol_mode="stderr",
-        min_iters=10,
-        cuda_async=True,
-    )
-
-    VF = view_factor_matrix(meshes, params=params)
-
-    # Print a compact summary per face
-    for name in VF:
-        row = VF[name]
-        row_sum = float(sum(row.values()))
-        print(f"{name}: receivers={len(row):2d}, sum={row_sum:.6f}")
-
-    # Save to JSON
-    here = Path(__file__).resolve().parent
-    out_path = here / "inside_vf_matrix.json"
-    save_path = save_vf_matrix_json(VF, str(out_path))
-    print(f"Saved inside view-factor matrix to: {save_path}")
+    from _support import Mesh, Scene, options, save_snapshot
+    from raystrack import Solver, Query, Channel
+    scene=Scene.from_meshes({sid:Mesh(v,f) for sid,v,f in make_box_unit_cube()})
+    with Solver(scene,device="cpu") as solver:
+        result=solver.solve(Query.matrix(),options(flip_faces=True))
+    for sender in result.sender_ids:
+        rest=result.value(sender,Channel("rest"))
+        print(sender,"surface fraction",1-rest,"escape",rest)
+    print("Saved:",save_snapshot("inside_enclosure",scene,result))
 
 
 if __name__ == "__main__":
     main()
-    from raystrack.utils.helpers import hold_console_open
-    hold_console_open()

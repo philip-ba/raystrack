@@ -7,12 +7,10 @@ The reference uses the point-receiver limit for a 1 cm square at 1 m height.
 from __future__ import annotations
 
 import time
-from unittest.mock import patch
 
 import numpy as np
 
-from raystrack import MatrixParams, PreparedSolver, view_factor_matrix, view_factor_targeted
-
+from raystrack import Mesh, Scene, Solver, Query, SolveOptions, Sampling, Accuracy, Postprocessing, Budget, Channel
 
 def square(name: str, z: float, half_width: float, downward: bool = False):
     h = half_width
@@ -25,76 +23,45 @@ def square(name: str, z: float, half_width: float, downward: bool = False):
 
 
 def main():
-    meshes = [square("emitter", 0.0, 1.0),
-              square("tiny", 1.0, 0.005, downward=True)]
-    prepared = PreparedSolver(meshes)
-    grid = (np.arange(500) + 0.5) / 250.0 - 1.0
-    x, y = np.meshgrid(grid, grid)
-    reference = 0.01**2 / np.pi * np.mean(1.0 / (1.0 + x*x + y*y)**2)
-    rays = 512
-    seeds = range(20)
-
-    # Warm Numba kernels so compilation does not enter the timings.
-    with patch("raystrack.main._log"):
-        view_factor_matrix(meshes, MatrixParams(samples=4, rays=32, seed=0,
-                            device="cpu", bvh="off", min_iters=1,
-                            max_iters=1), prepared=prepared)
-    view_factor_targeted(meshes, "emitter", "tiny", samples=rays,
-                         seed=0, prepared=prepared)
-
-    for method in ("cosine", "targeted_random", "targeted_halton"):
-        estimates = []
-        started = time.perf_counter()
-        for seed in seeds:
-            if method == "cosine":
-                with patch("raystrack.main._log"):
-                    result = view_factor_matrix(
-                        meshes,
-                        MatrixParams(samples=4, rays=32, seed=seed,
-                                     device="cpu", bvh="off", min_iters=1,
-                                     max_iters=1),
-                        prepared=prepared,
-                    )
-                value = result["emitter"].get("tiny_front", 0.0)
-            else:
-                result = view_factor_targeted(
-                    meshes, "emitter", "tiny", samples=rays,
-                    seed=seed, prepared=prepared,
-                    sequence="shifted_halton" if method == "targeted_halton" else "random")
-                value = result.get("tiny_front", 0.0)
-            estimates.append(value)
-        elapsed = time.perf_counter() - started
-        error = np.mean(np.abs(np.asarray(estimates) - reference))
-        print(f"{method:15s}  rays/seed={rays}  mean_abs_error={error:.6g}  "
-              f"zero_estimates={sum(value == 0 for value in estimates)}/20  "
-              f"time_for_20={elapsed:.3f}s")
-    print(f"reference={reference:.8g}")
-
-    # Same total ray budget: one 1,024-ray direction versus two 512-ray
-    # directions, averaged by exchanged area.
-    facing = [square("lower", 0.0, 1.0),
-              square("upper", 1.0, 1.0, downward=True)]
-    facing_prepared = PreparedSolver(facing)
-    delta = (np.arange(1000) + 0.5) * 4.0 / 1000 - 2.0
-    dx, dy = np.meshgrid(delta, delta)
-    facing_reference = (np.sum((2.0 - np.abs(dx)) * (2.0 - np.abs(dy))
-                               / (1.0 + dx*dx + dy*dy)**2)
-                        * (4.0 / 1000)**2 / (4.0 * np.pi))
-    for mode, rays_per_cell in (("shortcut", 64), ("bidirectional", 32)):
-        estimates = []
-        for seed in range(50):
-            with patch("raystrack.main._log"):
-                result = view_factor_matrix(
-                    facing,
-                    MatrixParams(samples=4, rays=rays_per_cell, seed=seed,
-                                 bvh="off", device="cpu", min_iters=1,
-                                 max_iters=1, reciprocity_mode=mode),
-                    prepared=facing_prepared,
-                )
-            estimates.append(result["lower"].get("upper_front", 0.0))
-        error = np.sqrt(np.mean((np.asarray(estimates) - facing_reference)**2))
-        print(f"{mode:15s}  rays/pair=1024  pair_rmse={error:.6g}  "
-              f"reference={facing_reference:.8g}")
+    scene=Scene.from_meshes({sid:Mesh(v,f) for sid,v,f in [
+        square("emitter",0,1),square("tiny",1,.005,downward=True)]})
+    grid=(np.arange(500)+.5)/250-1
+    x,y=np.meshgrid(grid,grid)
+    reference=.01**2/np.pi*np.mean(1/(1+x*x+y*y)**2)
+    def opts(method,seed):
+        sampling=(Sampling(density=4,rays_per_cell=32,seed=seed) if method == "cosine"
+                  else Sampling(strategy="area_pair",pair_samples=512,seed=seed,
+                                sequence="random" if method == "area_pair_random" else "shifted_halton"))
+        return SolveOptions(sampling,Accuracy(max_replicates=1,min_replicates=1,tolerance=0))
+    with Solver(scene,device="cpu",bvh="off",auto_tune=False) as solver:
+        for method in ("cosine","area_pair_random","area_pair_halton"):
+            solver.solve(Query.pair("emitter","tiny"),opts(method,0),Budget(rays=512))
+            estimates=[]; started=time.perf_counter()
+            for seed in range(20):
+                result=solver.solve(Query.pair("emitter","tiny"),opts(method,seed),Budget(rays=512))
+                assert result.rays_used == 512
+                estimates.append(result.value("emitter",Channel("surface","tiny","front")))
+            error=np.mean(np.abs(np.asarray(estimates)-reference))
+            print(method,"rays/seed=512","mean_abs_error",float(error),
+                  "zero_estimates",sum(v == 0 for v in estimates),"elapsed_s",time.perf_counter()-started)
+    print("Point-receiver reference",float(reference))
+    facing=Scene.from_meshes({sid:Mesh(v,f) for sid,v,f in [
+        square("lower",0,1),square("upper",1,1,downward=True)]})
+    delta=(np.arange(1000)+.5)*4/1000-2
+    dx,dy=np.meshgrid(delta,delta)
+    reference=np.sum((2-np.abs(dx))*(2-np.abs(dy))/(1+dx*dx+dy*dy)**2)*(4/1000)**2/(4*np.pi)
+    with Solver(facing,device="cpu",bvh="off",auto_tune=False) as solver:
+        for method in ("one_direction","bidirectional"):
+            estimates=[]
+            for seed in range(50):
+                query=Query.row("lower") if method == "one_direction" else Query.matrix()
+                options=SolveOptions(Sampling(density=4,rays_per_cell=64 if method == "one_direction" else 32,seed=seed),
+                    Accuracy(max_replicates=1,min_replicates=1,tolerance=0),
+                    Postprocessing("none" if method == "one_direction" else "bidirectional"))
+                result=solver.solve(query,options)
+                assert result.rays_used == 1024
+                estimates.append(result.value("lower",Channel("surface","upper","front")))
+            print(method,"rays/pair=1024","RMSE",float(np.sqrt(np.mean((np.asarray(estimates)-reference)**2))))
 
 
 if __name__ == "__main__":

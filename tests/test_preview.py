@@ -1,253 +1,190 @@
-from __future__ import annotations
-
-from concurrent.futures import CancelledError
+﻿"""Persistent public runs: immutable snapshots, cancellation and async work."""
 from dataclasses import FrozenInstanceError
 import threading
 import unittest
-from unittest.mock import patch
 
 import numpy as np
 
-from raystrack.params import MatrixParams, SkyParams
-from raystrack.preview import PreviewResult, PreviewSession
-from raystrack.utils.prepared import PreparedSolver
+from raystrack import Mesh, Scene, Solver, Query, SolveOptions, Sampling, Accuracy, Budget, Channel
 
 
-def square(name, z):
-    vertices = np.asarray([[-1, -1, z], [1, -1, z], [1, 1, z], [-1, 1, z]], dtype=np.float32)
-    faces = np.asarray([[0, 1, 2], [0, 2, 3]], dtype=np.int32)
-    return name, vertices, faces
+def scene():
+    vertices = np.array([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0]], np.float32)
+    faces = np.array([[0,1,2],[0,2,3]], np.int32)
+    return Scene.from_meshes({"lower": Mesh(vertices, faces),
+                             "upper": Mesh(vertices+[0,0,1], faces[:,::-1])})
 
 
-def solver():
-    return PreparedSolver([square("lower", 0), square("upper", 1)])
+def options(*, seed=99, batch_size=16):
+    return SolveOptions(Sampling(density=2, rays_per_cell=8, seed=seed),
+                        Accuracy(max_replicates=10, min_replicates=3, tolerance=0),
+                        batch_size=batch_size)
 
 
 class PreviewTests(unittest.TestCase):
-    def test_result_is_deeply_immutable_and_exports_independent_dicts(self):
-        source = {"lower": {"upper_front": 0.25}}
-        result = PreviewResult(3, source, {}, {}, True, False, 80, 12.0)
-        source["lower"]["upper_front"] = 0.9
-        self.assertEqual(result.scene["lower"]["upper_front"], 0.25)
+    def test_result_is_deeply_immutable_and_dense_exports_are_independent(self):
+        with Solver(scene(), device="cpu", auto_tune=False) as solver:
+            result = solver.solve(Query.row("lower"), options=options(), budget=Budget(rays=80))
+        channel = Channel("surface", "upper", "front")
+        before = result.value("lower", channel)
         with self.assertRaises(TypeError):
-            result.scene["lower"]["upper_front"] = 0.5
+            result.row("lower")[channel] = .5
+        with self.assertRaises(TypeError):
+            result.statistics["emitters"]["lower"]["rays"] = 0
         with self.assertRaises(FrozenInstanceError):
-            result.scene_version = 4
-        exported = result.as_dict()
-        exported["scene"]["lower"]["upper_front"] = 1.0
-        self.assertEqual(result.scene["lower"]["upper_front"], 0.25)
+            result.scene_revision = 4
+        with self.assertRaises(ValueError):
+            result.coverage.setflags(write=True)
+        exported = result.dense()
+        exported[:] = 1
+        self.assertEqual(result.value("lower", channel), before)
 
-    def test_preview_clones_params_selects_emitters_and_reports_rays(self):
+    def test_query_owns_sender_selection_and_run_reports_bounded_progress(self):
         names = ["lower"]
-        params = MatrixParams(device="cpu", emitter_names=names, max_iters=5)
+        query = Query.matrix(senders=names)
+        names.clear()
         progress = []
+        with Solver(scene(), device="cpu", auto_tune=False) as solver:
+            result = solver.solve(query, options=options(), budget=Budget(rays=80), progress=progress.append)
+        self.assertEqual(result.sender_ids, ("lower",))
+        self.assertEqual(result.rays_used, 80)
+        self.assertEqual(sum(progress), 80)
+        self.assertLessEqual(max(progress), 16)
+        self.assertGreaterEqual(result.elapsed_ms, 0)
 
-        def trace(meshes, passed, *, prepared, cancel, progress, accumulator=None):
-            self.assertEqual(passed.emitter_names, ["lower"])
-            self.assertEqual(passed.max_total_rays, 80)
-            self.assertIsNone(passed.max_time_ms)
-            self.assertEqual(passed.ray_batch_size, 8192)
-            self.assertFalse(cancel())
-            progress(30)
-            progress(50)
-            return {"lower": {"upper_back": 0.25}}
-
-        with PreviewSession(solver(), params) as session:
-            names.clear()
-            with patch("raystrack.preview.view_factor_matrix", side_effect=trace):
-                result = session.preview(max_total_rays=80, max_time_ms=None, progress=progress.append)
-            self.assertTrue(result.completed)
-            self.assertFalse(result.cancelled)
-            self.assertEqual(result.rays_used, 80)
-            self.assertEqual(progress, [30, 50])
-            self.assertIs(session.latest, result)
-            self.assertGreaterEqual(result.elapsed_ms, 0)
-        self.assertEqual(params.emitter_names, [])
-        self.assertIsNone(params.max_total_rays)
-
-    def test_outside_workflow_gets_matching_selection_and_budget(self):
-        def trace(meshes, *, matrix_params, sky_params, prepared, cancel, progress, accumulator=None):
-            self.assertEqual(matrix_params.emitter_names, ["upper"])
-            self.assertEqual(sky_params.emitter_names, ["upper"])
-            self.assertEqual(matrix_params.max_total_rays, 12)
-            self.assertEqual(sky_params.max_total_rays, 12)
-            progress(12)
-            return {"upper": {}}, {"upper": {"Sky": 0.75}}, {"upper": {"Rest": 0.25}}
-
-        with PreviewSession(solver(), MatrixParams(), SkyParams()) as session:
-            with patch("raystrack.preview.view_factor_outside_workflow", side_effect=trace):
-                result = session.preview(emitter_names=["upper"], max_total_rays=12)
-        self.assertEqual(result.sky["upper"]["Sky"], 0.75)
-        self.assertEqual(result.rest["upper"]["Rest"], 0.25)
+    def test_combined_scene_and_sky_share_one_selection_and_budget(self):
+        progress = []
+        with Solver(scene(), device="cpu", auto_tune=False) as solver:
+            result = solver.solve(Query.row("upper", sky="merged"), options=options(),
+                                  budget=Budget(rays=12), progress=progress.append)
+        self.assertEqual(result.sender_ids, ("upper",))
+        self.assertEqual(result.rays_used, sum(progress))
         self.assertEqual(result.rays_used, 12)
+        self.assertAlmostEqual(sum(result.row("upper").values()), 1)
+        self.assertIn(Channel("sky"), result.channels)
+        self.assertIn(Channel("rest"), result.channels)
 
-    def test_cancelled_request_drops_partial_results(self):
-        cancelled = threading.Event()
+    def test_cancelled_run_is_terminal_and_previous_snapshot_is_unchanged(self):
+        with Solver(scene(), device="cpu", auto_tune=False) as solver:
+            run = solver.start(Query.row("lower"), options=options())
+            previous = run.advance(Budget(rays=7))
+            previous_values = previous.dense().copy()
+            result = run.advance(Budget(rays=80), progress=lambda count: run.cancel())
+            self.assertEqual(run.status, "cancelled")
+            self.assertEqual(result.status, "cancelled")
+            self.assertLessEqual(result.rays_used, 16)
+            np.testing.assert_array_equal(previous.dense(), previous_values)
+            stopped = run.advance(Budget(rays=1))
+            self.assertEqual(stopped.rays_used, 0)
+            self.assertEqual(stopped.cumulative_rays, result.cumulative_rays)
+            self.assertEqual(stopped.status, "cancelled")
 
-        def trace(meshes, params, *, prepared, cancel, progress, accumulator=None):
-            progress(7)
-            cancelled.set()
-            self.assertTrue(cancel())
-            return {"lower": {"upper_back": 0.5}}
-
-        with PreviewSession(solver()) as session:
-            with patch("raystrack.preview.view_factor_matrix", side_effect=trace):
-                result = session.solve(cancel=cancelled.is_set)
-            self.assertIsNone(session.latest)
-        self.assertFalse(result.completed)
-        self.assertTrue(result.cancelled)
-        self.assertEqual(result.rays_used, 7)
-        self.assertEqual(dict(result.scene), {})
-
-    def test_pre_cancelled_request_does_not_trace(self):
-        with PreviewSession(solver()) as session:
-            with patch("raystrack.preview.view_factor_matrix") as trace:
-                result = session.preview(cancel=lambda: True)
-            trace.assert_not_called()
-            self.assertTrue(result.cancelled)
+    def test_pre_cancelled_run_does_not_trace(self):
+        with Solver(scene(), device="cpu", auto_tune=False) as solver:
+            run = solver.start(Query.row("lower"), options=options())
+            run.cancel()
+            progress = []
+            result = run.advance(Budget(rays=80), progress=progress.append)
             self.assertEqual(result.rays_used, 0)
+            self.assertEqual(result.status, "cancelled")
+            self.assertEqual(progress, [])
 
-    def test_submit_coalesces_queued_frames_and_cancels_running_frame(self):
-        started = threading.Event()
-        release = threading.Event()
-        active = 0
-        peak_active = 0
-        calls = []
-
-        def trace(meshes, params, *, prepared, cancel, progress, accumulator=None):
-            nonlocal active, peak_active
-            active += 1
-            peak_active = max(peak_active, active)
-            calls.append(params.max_total_rays)
+    def test_repeated_submit_queues_additive_budgets_and_serializes_execution(self):
+        entered, release = threading.Event(), threading.Event()
+        with Solver(scene(), device="cpu", auto_tune=False) as solver:
+            run = solver.start(Query.row("lower"), options=options())
+            def hold(count):
+                entered.set()
+                self.assertTrue(release.wait(10))
+            first = run.submit(Budget(rays=10), progress=hold)
             try:
-                if len(calls) == 1:
-                    started.set()
-                    self.assertTrue(release.wait(5))
-                    self.assertTrue(cancel())
-                progress(1)
-                return {"lower": {"upper_back": 0.2}}
+                self.assertTrue(entered.wait(10))
+                second = run.submit(Budget(rays=20))
+                third = run.submit(Budget(rays=30))
+                self.assertFalse(second.done())
+                self.assertFalse(third.done())
             finally:
-                active -= 1
+                release.set()
+            self.assertEqual(first.result(timeout=10).cumulative_rays, 10)
+            self.assertEqual(second.result(timeout=10).cumulative_rays, 30)
+            self.assertEqual(third.result(timeout=10).cumulative_rays, 60)
 
-        with patch("raystrack.preview.view_factor_matrix", side_effect=trace):
-            with PreviewSession(solver()) as session:
-                first = session.submit(max_total_rays=10, max_time_ms=None)
-                try:
-                    self.assertTrue(started.wait(5))
-                    queued = session.submit(max_total_rays=20, max_time_ms=None)
-                    newest = session.submit(max_total_rays=30, max_time_ms=None)
-                finally:
-                    release.set()
-                self.assertTrue(first.result(timeout=5).cancelled)
-                with self.assertRaises(CancelledError):
-                    queued.result(timeout=5)
-                result = newest.result(timeout=5)
-                self.assertTrue(result.completed)
-                self.assertIs(session.latest, result)
-        self.assertEqual(calls, [10, 30])
-        self.assertEqual(peak_active, 1)
+    def test_update_invalidates_worker_before_waiting_for_scene_lock(self):
+        current = scene()
+        entered, release, notified = threading.Event(), threading.Event(), threading.Event()
+        current._subscribe(notified.set)
+        with Solver(current, device="cpu", auto_tune=False) as solver:
+            run = solver.start(Query.row("lower"), options=options())
+            def hold(count):
+                entered.set()
+                self.assertTrue(release.wait(10))
+            pending = run.submit(Budget(rays=80), progress=hold)
+            transform = np.eye(4); transform[0,3] = .5
+            updater = threading.Thread(target=current.update_transform, args=("upper", transform))
+            try:
+                self.assertTrue(entered.wait(10))
+                updater.start()
+                self.assertTrue(notified.wait(10))
+                self.assertEqual(run.status, "invalidated")
+            finally:
+                release.set()
+                updater.join(10)
+            stale = pending.result(timeout=10)
+            self.assertEqual(stale.status, "invalidated")
+            self.assertEqual(stale.scene_revision, 0)
+            self.assertEqual(current.revision, 1)
+            with self.assertRaisesRegex(RuntimeError, "Scene geometry changed"):
+                run.advance(Budget(rays=1))
 
-    def test_update_cancels_worker_before_mutating_scene(self):
-        started = threading.Event()
-        stopped = threading.Event()
-        prepared = solver()
-        original_version = prepared.version
+    def test_topology_update_invalidates_old_work_and_rebuilds_new_acceleration(self):
+        current = scene()
+        with Solver(current, device="cpu", acceleration="instanced", auto_tune=False) as solver:
+            run = solver.start(Query.row("lower"), options=options())
+            previous = run.advance(Budget(rays=48))
+            current.update_mesh("upper", Mesh(current["upper"].world_vertices(), np.array([[0,2,1]], np.int32)))
+            self.assertEqual(run.status, "invalidated")
+            with self.assertRaisesRegex(RuntimeError, "Scene geometry changed"):
+                run.advance(Budget(rays=1))
+            fresh = solver.solve(Query.row("lower"), options=options(), budget=Budget(rays=48))
+            self.assertEqual(previous.scene_revision, 0)
+            self.assertEqual(fresh.scene_revision, 1)
+            self.assertEqual(fresh.rays_used, 48)
 
-        def trace(meshes, params, *, prepared, cancel, progress, accumulator=None):
-            started.set()
-            deadline = threading.Event()
-            for _ in range(500):
-                if cancel():
-                    stopped.set()
-                    progress(1)
-                    return {"lower": {"upper_back": 0.3}}
-                deadline.wait(0.01)
-            self.fail("scene update failed to cancel the worker")
+    def test_additional_budget_preserves_seed_and_requires_stationary_scene(self):
+        current = scene()
+        with Solver(current, device="cpu", auto_tune=False) as solver:
+            run = solver.start(Query.row("lower"), options=options())
+            first = run.advance(Budget(rays=10))
+            refined = run.advance(Budget(rays=30))
+            reference = solver.solve(Query.row("lower"), options=options(), budget=Budget(rays=40))
+            np.testing.assert_array_equal(refined.dense(), reference.dense())
+            self.assertEqual(first.cumulative_rays, 10)
+            self.assertEqual(refined.rays_used, 30)
+            self.assertEqual(refined.cumulative_rays, 40)
+            transform = np.eye(4); transform[1,3] = .5
+            current.update_transform("upper", transform)
+            with self.assertRaisesRegex(RuntimeError, "Scene geometry changed"):
+                run.advance(Budget(rays=1))
 
-        translation = np.eye(4)
-        translation[0, 3] = 0.5
-        with patch("raystrack.preview.view_factor_matrix", side_effect=trace):
-            with PreviewSession(prepared) as session:
-                pending = session.submit(max_time_ms=None)
-                self.assertTrue(started.wait(5))
-                session.update_transform("upper", translation)
-                self.assertTrue(stopped.is_set())
-                self.assertTrue(pending.result(timeout=5).cancelled)
-                self.assertEqual(prepared.version, original_version + 1)
-                self.assertIsNone(session.latest)
+    def test_closed_run_and_solver_reject_work(self):
+        solver = Solver(scene(), device="cpu", auto_tune=False)
+        run = solver.start(Query.row("lower"), options=options())
+        run.close(); run.close()
+        for action in (lambda: run.advance(Budget(rays=1)), lambda: run.submit(Budget(rays=1))):
+            with self.assertRaisesRegex(RuntimeError, "closed"):
+                action()
+        solver.close(); solver.close()
+        for action in (lambda: solver.start(Query.row("lower")), lambda: solver.solve(Query.row("lower"))):
+            with self.assertRaisesRegex(RuntimeError, "closed"):
+                action()
 
-    def test_rebuild_cancels_worker_and_replaces_acceleration_snapshot(self):
-        prepared = solver()
-        original_scene = prepared.get_scene(use_bvh=True)
-        original_version = prepared.version
-        started = threading.Event()
-
-        def trace(meshes, params, *, prepared, cancel, progress, accumulator=None):
-            started.set()
-            pause = threading.Event()
-            for _ in range(500):
-                if cancel():
-                    return {"lower": {"upper_back": 0.3}}
-                pause.wait(0.01)
-            self.fail("BVH rebuilding failed to cancel the worker")
-
-        with patch("raystrack.preview.view_factor_matrix", side_effect=trace):
-            with PreviewSession(prepared) as session:
-                pending = session.submit(max_time_ms=None)
-                self.assertTrue(started.wait(5))
-                new_version = session.rebuild_bvh()
-                self.assertTrue(pending.result(timeout=5).cancelled)
-                self.assertEqual(new_version, original_version + 1)
-                self.assertIsNot(prepared.get_scene(use_bvh=True), original_scene)
-                self.assertIsNone(session.latest)
-
-    def test_refinement_increases_budget_preserves_seed_and_requires_stationary_scene(self):
-        captured = []
-
-        def trace(meshes, params, *, prepared, cancel, progress, accumulator=None):
-            captured.append(params)
-            progress(params.max_total_rays)
-            return {"lower": {"upper_back": 0.5}}
-
-        with PreviewSession(solver(), MatrixParams(seed=99, max_iters=3)) as session:
-            with self.assertRaisesRegex(RuntimeError, "before refining"):
-                session.refine()
-            with patch("raystrack.preview.view_factor_matrix", side_effect=trace):
-                first = session.preview(max_total_rays=10)
-                refined = session.refine(level=2)
-                self.assertEqual(captured[1].max_total_rays, 30)
-                self.assertEqual(captured[1].max_iters, 12)
-                self.assertEqual(captured[1].seed, 99)
-                self.assertIsNone(captured[1].max_time_ms)
-                self.assertEqual(refined.scene_version, first.scene_version)
-                self.assertEqual(refined.rays_used, 30)
-                self.assertEqual(refined.cumulative_rays, 40)
-                translation = np.eye(4)
-                translation[1, 3] = 0.5
-                session.update_transform("upper", translation)
-                with self.assertRaisesRegex(RuntimeError, "scene changed"):
-                    session.refine()
-
-    def test_closed_session_rejects_work(self):
-        session = PreviewSession(solver())
-        session.close()
-        session.close()
-        for action in (session.preview, session.submit, session.solve, session.refine):
-            with self.subTest(action=action.__name__):
-                with self.assertRaisesRegex(RuntimeError, "closed"):
-                    action()
-
-    def test_real_cpu_preview_obeys_budget_and_repeats_seed(self):
-        params = MatrixParams(samples=2, rays=8, min_iters=2, max_iters=3,
-                              reciprocity=False, bvh="builtin", device="cpu")
-        with patch("raystrack.main._log"):
-            with PreviewSession(solver(), params) as session:
-                first = session.preview(emitter_names=["lower"], max_total_rays=48, max_time_ms=None)
-                second = session.preview(emitter_names=["lower"], max_total_rays=48, max_time_ms=None)
-        self.assertTrue(first.completed)
+    def test_fresh_cpu_runs_obey_budget_and_repeat_seed(self):
+        with Solver(scene(), device="cpu", auto_tune=False) as solver:
+            first = solver.solve(Query.row("lower"), options=options(), budget=Budget(rays=48))
+            second = solver.solve(Query.row("lower"), options=options(), budget=Budget(rays=48))
         self.assertEqual(first.rays_used, 48)
-        self.assertEqual(first.scene, second.scene)
-        self.assertEqual(set(first.scene), {"lower"})
+        np.testing.assert_array_equal(first.dense(), second.dense())
+        self.assertEqual(first.sender_ids, ("lower",))
 
 
 if __name__ == "__main__":

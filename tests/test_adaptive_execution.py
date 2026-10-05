@@ -1,188 +1,153 @@
-"""Fair sampling, complete-replicate errors, and exact seeded continuation."""
+﻿"""Fair sampling, complete-replicate errors, and exact seeded continuation."""
 from dataclasses import replace
 from unittest.mock import patch
-
 import numpy as np
 import pytest
-
-from raystrack import MatrixParams, SkyParams, PreparedSolver
-from raystrack.execution import SolveAccumulator, _CpuWorkspace, solve
-from raystrack.tuning import ExecutionPlan
+from raystrack import Mesh, Scene, Solver, Query, SolveOptions, Sampling, Accuracy, Budget
+from raystrack.backends.workspaces import _CpuWorkspace
+from raystrack.backends.calibration import ExecutionPlan
 
 
 def scene(count=3):
-    vertices = np.array([[-1,-1,0], [1,-1,0], [1,1,0], [-1,1,0]], np.float32)
-    faces = np.array([[0,1,2], [0,2,3]], np.int32)
-    return [(f"row{i}", vertices + [0,0,float(i)], faces) for i in range(count)]
+    vertices = np.array([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0]], np.float32)
+    faces = np.array([[0,1,2],[0,2,3]], np.int32)
+    return Scene.from_meshes({f"row{i}": Mesh(vertices+[0,0,float(i)], faces) for i in range(count)})
 
 
-def sky_params(**overrides):
-    values = dict(samples=2, rays=8, max_iters=100, min_iters=3, tol=0,
-                  device="cpu", auto_tune=False, seed=17, ray_batch_size=65536)
-    values.update(overrides)
-    return SkyParams(**values)
+def options(**changes):
+    sampling = Sampling(density=2, rays_per_cell=8, seed=17, mode=changes.pop("mode", "fair"))
+    accuracy = Accuracy(max_replicates=changes.pop("max_replicates",100),
+                        min_replicates=changes.pop("min_replicates",3), tolerance=changes.pop("tolerance",0))
+    return SolveOptions(sampling, accuracy, batch_size=changes.pop("batch_size",65536))
+
+
+def rows(result):
+    return result.statistics["emitters"]
 
 
 def test_small_budget_is_distributed_substantially_across_every_emitter():
-    prepared = PreparedSolver(scene())
-    acc = SolveAccumulator()
-    _, results = solve(prepared.meshes, prepared=prepared,
-                       sky_params=sky_params(max_total_rays=100), accumulator=acc)
-    rows = acc.stats()["emitters"]
-    assert set(results) == set(rows) == {"row0", "row1", "row2"}
-    assert acc.cumulative_rays == 100
-    shares = [row["rays"] for row in rows.values()]
-    assert min(shares) >= 20
-    assert max(shares) - min(shares) <= 16
-    assert all(row["replicates"] == 0 for row in rows.values())
+    with Solver(scene(), device="cpu", auto_tune=False) as solver:
+        result = solver.solve(Query.sky(), options(), Budget(rays=100))
+    assert set(rows(result)) == set(result.sender_ids) == {"row0","row1","row2"}
+    assert result.cumulative_rays == 100
+    shares = [row["rays"] for row in rows(result).values()]
+    assert min(shares) >= 20 and max(shares)-min(shares) <= 16
+    assert all(row["replicates"] == 0 for row in rows(result).values())
 
 
 def test_minimal_global_budget_serves_each_selected_row():
-    prepared = PreparedSolver(scene())
-    acc = SolveAccumulator()
-    solve(prepared.meshes, prepared=prepared,
-          sky_params=sky_params(max_total_rays=3), accumulator=acc)
-    assert [row["rays"] for row in acc.stats()["emitters"].values()] == [1, 1, 1]
+    with Solver(scene(), device="cpu", auto_tune=False) as solver:
+        result = solver.solve(Query.sky(), options(), Budget(rays=3))
+    assert [row["rays"] for row in rows(result).values()] == [1,1,1]
 
 
 def test_resume_matches_uninterrupted_prefix_without_duplicate_rays():
-    prepared = PreparedSolver(scene())
-    params = sky_params(max_total_rays=31, ray_batch_size=17)
-    resumed, full = SolveAccumulator(), SolveAccumulator()
-    trace = _CpuWorkspace.trace
-    seen = set()
-
-    def record(workspace, scene, emitter, n_surf, **options):
-        shift = options["cp_grid"].tobytes()
-        start, size = options["ray_offset"], options["ray_count"]
-        samples = {(options["emit_sid"], shift, ray) for ray in range(start, start+size)}
+    trace, seen = _CpuWorkspace.trace, set()
+    def record(workspace, scene, emitter, n_surf, **opts):
+        shift = opts["cp_grid"].tobytes()
+        start,size = opts["ray_offset"],opts["ray_count"]
+        samples = {(opts["emit_sid"],shift,ray) for ray in range(start,start+size)}
         assert seen.isdisjoint(samples), "a previously traced ray was traced again"
         seen.update(samples)
-        return trace(workspace, scene, emitter, n_surf, **options)
-
-    with patch.object(_CpuWorkspace, "trace", record):
-        solve(prepared.meshes, prepared=prepared, sky_params=params, accumulator=resumed)
-        actual = solve(prepared.meshes, prepared=prepared,
-                       sky_params=replace(params, max_total_rays=33), accumulator=resumed)
-    expected = solve(prepared.meshes, prepared=prepared,
-                     sky_params=replace(params, max_total_rays=64), accumulator=full)
-    assert actual == expected
-    assert len(seen) == resumed.cumulative_rays == full.cumulative_rays == 64
-    assert resumed.stats()["emitters"] == full.stats()["emitters"]
+        return trace(workspace,scene,emitter,n_surf,**opts)
+    with Solver(scene(),device="cpu",auto_tune=False) as solver:
+        run = solver.start(Query.sky(), options(batch_size=17))
+        with patch.object(_CpuWorkspace,"trace",record):
+            run.advance(Budget(rays=31))
+            actual = run.advance(Budget(rays=33))
+        expected = solver.solve(Query.sky(),options(batch_size=17),Budget(rays=64))
+    np.testing.assert_array_equal(actual.dense(),expected.dense())
+    assert len(seen) == actual.cumulative_rays == expected.cumulative_rays == 64
+    assert rows(actual) == rows(expected)
 
 
 def test_incomplete_replicates_do_not_claim_zero_variance_convergence():
-    prepared = PreparedSolver(scene(1))
-    params = sky_params(max_total_rays=31)
-    acc = SolveAccumulator()
-    n_once = prepared.get_emitter(0, samples=params.samples, rays=params.rays,
-                                 flip_faces=False).n_cells * params.rays
-    solve(prepared.meshes, prepared=prepared, sky_params=params, accumulator=acc)
-    info = acc.stats()["emitters"]["row0"]
-    assert info["replicates"] == 0 and info["ray_offset"] == 31
-    assert info["sky"]["stderr"] is None and not info["sky"]["converged"]
-    solve(prepared.meshes, prepared=prepared,
-          sky_params=replace(params, max_total_rays=n_once-31), accumulator=acc)
-    assert acc.stats()["emitters"]["row0"]["sky"]["replicates"] == 1
-    solve(prepared.meshes, prepared=prepared,
-          sky_params=replace(params, max_total_rays=n_once), accumulator=acc)
-    assert not acc.stats()["emitters"]["row0"]["sky"]["converged"]
-    solve(prepared.meshes, prepared=prepared,
-          sky_params=replace(params, max_total_rays=n_once), accumulator=acc)
-    assert acc.status == "converged"
-    assert acc.cumulative_rays == 3 * n_once
+    with Solver(scene(1),device="cpu",auto_tune=False) as solver:
+        run = solver.start(Query.sky(),options())
+        first = run.advance(Budget(rays=31))
+        info = rows(first)["row0"]
+        assert info["replicates"] == 0 and info["ray_offset"] == 31
+        assert info["sky"]["stderr"] is None and not info["sky"]["converged"]
+        one = run.advance(Budget(rays=97))
+        assert rows(one)["row0"]["sky"]["replicates"] == 1
+        two = run.advance(Budget(rays=128))
+        assert not rows(two)["row0"]["sky"]["converged"]
+        three = run.advance(Budget(rays=128))
+    assert three.status == "converged" and three.cumulative_rays == 384
 
 
 def test_resume_reopens_a_completed_iteration_cap_without_restarting():
-    prepared = PreparedSolver(scene(1))
-    params = sky_params(max_iters=1, min_iters=1)
-    acc = SolveAccumulator()
-    solve(prepared.meshes, prepared=prepared, sky_params=params, accumulator=acc)
-    previous = acc.cumulative_rays
-    assert acc.status == "max_iters"
-    progress = []
-    solve(prepared.meshes, prepared=prepared,
-          sky_params=replace(params, max_iters=3, min_iters=2), accumulator=acc,
-          progress=progress.append)
-    assert sum(progress) == previous
-    assert acc.cumulative_rays == 2 * previous and acc.status == "converged"
+    with Solver(scene(1),device="cpu",auto_tune=False) as solver:
+        opts = options(max_replicates=1,min_replicates=1)
+        run = solver.start(Query.sky(),opts)
+        first = run.advance()
+        assert first.status == "max_iters"
+        progress = []
+        result = run.advance(options=replace(opts,accuracy=Accuracy(max_replicates=3,min_replicates=2,tolerance=0)),progress=progress.append)
+    assert sum(progress) == first.cumulative_rays
+    assert result.cumulative_rays == 2*first.cumulative_rays and result.status == "converged"
 
 
 def test_sampling_and_scene_changes_reject_existing_accumulation():
-    prepared = PreparedSolver(scene())
-    params = sky_params(max_total_rays=17)
-    acc = SolveAccumulator()
-    solve(prepared.meshes, prepared=prepared, sky_params=params, accumulator=acc)
-    for changed in (replace(params, seed=18), replace(params, samples=3),
-                    replace(params, emitter_names=["row1"])):
-        with pytest.raises(ValueError, match="fresh"):
-            solve(prepared.meshes, prepared=prepared, sky_params=changed, accumulator=acc)
-    transform = np.eye(4)
-    transform[0,3] = .4
-    prepared.update_transform("row1", transform)
-    with pytest.raises(ValueError, match="fresh"):
-        solve(prepared.meshes, prepared=prepared, sky_params=params, accumulator=acc)
-    assert acc.cumulative_rays == 17
+    current,opts = scene(),options()
+    with Solver(current,device="cpu",auto_tune=False) as solver:
+        run = solver.start(Query.sky(),opts)
+        run.advance(Budget(rays=17))
+        for changed in (replace(opts,sampling=replace(opts.sampling,seed=18)),
+                        replace(opts,sampling=replace(opts.sampling,density=3))):
+            with pytest.raises(ValueError,match="Sampling changed"):
+                run.advance(Budget(rays=17),options=changed)
+        transform=np.eye(4); transform[0,3]=.4
+        current.update_transform("row1",transform)
+        with pytest.raises(RuntimeError,match="Scene geometry changed"):
+            run.advance(Budget(rays=17))
+        assert run.cumulative_rays == 17
 
 
 def test_accuracy_allocation_prioritizes_noisy_rows_after_fair_exploration():
-    def model(workspace, scene, emitter, n_surf, **options):
-        # A deterministic Bernoulli prefix with known row-specific variability
-        # across randomized replicates, independent of ray chunk boundaries.
-        row, jitter = options["emit_sid"], float(options["cp_grid"][0])
-        probability = ((.3 + .15*jitter) if row == 0 else
-                       (.1 + .8*jitter) if row == 1 else (.4 + .1*jitter))
-        offset, count = options["ray_offset"], options["ray_count"]
-        hits = int((offset+count)*probability) - int(offset*probability)
-        return np.zeros(n_surf, np.int64), np.zeros(n_surf, np.int64), np.array([hits], np.int64)
-
-    prepared = PreparedSolver(scene())
-    fair, adaptive = SolveAccumulator(), SolveAccumulator()
-    params = sky_params(max_total_rays=4096, ray_batch_size=32)
-    with patch.object(_CpuWorkspace, "trace", model):
-        solve(prepared.meshes, prepared=prepared, sky_params=params, accumulator=fair)
-        solve(prepared.meshes, prepared=prepared,
-              sky_params=replace(params, sampling_mode="adaptive"), accumulator=adaptive)
-    fair_rows, adapted = fair.stats()["emitters"], adaptive.stats()["emitters"]
+    def model(workspace,scene,emitter,n_surf,**opts):
+        row,jitter = opts["emit_sid"],float(opts["cp_grid"][0])
+        probability = (.3+.15*jitter) if row == 0 else (.1+.8*jitter) if row == 1 else (.4+.1*jitter)
+        offset,count = opts["ray_offset"],opts["ray_count"]
+        hits = int((offset+count)*probability)-int(offset*probability)
+        return np.zeros(n_surf,np.int64),np.zeros(n_surf,np.int64),np.array([hits],np.int64)
+    with Solver(scene(),device="cpu",auto_tune=False) as solver, patch.object(_CpuWorkspace,"trace",model):
+        fair = solver.solve(Query.sky(),options(batch_size=32),Budget(rays=4096))
+        adaptive = solver.solve(Query.sky(),options(mode="adaptive",batch_size=32),Budget(rays=4096))
+    adapted=rows(adaptive)
     assert adaptive.cumulative_rays == fair.cumulative_rays == 4096
-    assert all(row["sky"]["replicates"] >= params.min_iters for row in adapted.values())
-    assert adapted["row1"]["rays"] > 1.3 * fair_rows["row1"]["rays"]
-    assert adapted["row1"]["rays"] > max(adapted["row0"]["rays"], adapted["row2"]["rays"])
-    assert min(row["rays"] for row in adapted.values()) > 3 * 128
+    assert all(row["sky"]["replicates"] >= 3 for row in adapted.values())
+    assert adapted["row1"]["rays"] > 1.3*rows(fair)["row1"]["rays"]
+    assert adapted["row1"]["rays"] > max(adapted["row0"]["rays"],adapted["row2"]["rays"])
+    assert min(row["rays"] for row in adapted.values()) > 3*128
 
 
 def test_resume_keeps_numerical_backend_when_auto_calibration_changes():
-    prepared = PreparedSolver(scene(1))
-    acc = SolveAccumulator()
-    params = sky_params(device="auto", max_total_rays=17)
-    with patch("raystrack.tuning.plan_execution", return_value=ExecutionPlan("cpu", 17)):
-        solve(prepared.meshes, prepared=prepared, sky_params=params, accumulator=acc)
-    with patch("raystrack.tuning.plan_execution", return_value=ExecutionPlan("taichi", 64)):
-        solve(prepared.meshes, prepared=prepared, sky_params=params, accumulator=acc)
-    assert acc.cumulative_rays == 34
-    assert acc.stats()["execution"]["backend"] == "cpu"
-    assert prepared._last_execution_plan["backend"] == "cpu"
+    with Solver(scene(1),device="auto") as solver:
+        run=solver.start(Query.sky(),options())
+        with patch("raystrack.engine.scheduler.plan_execution",return_value=ExecutionPlan("cpu",17)):
+            run.advance(Budget(rays=17))
+        with patch("raystrack.engine.scheduler.plan_execution",return_value=ExecutionPlan("taichi",64)):
+            result=run.advance(Budget(rays=17))
+    assert result.cumulative_rays == 34 and result.execution["backend"] == "cpu"
 
 
-def test_child_branches_report_one_cumulative_total():
-    prepared = PreparedSolver(scene())
-    acc = SolveAccumulator()
-    first, second = acc.child("matrix"), acc.child("sky")
-    solve(prepared.meshes, prepared=prepared,
-          matrix_params=MatrixParams(samples=2, rays=8, device="cpu", auto_tune=False,
-                                     reciprocity=False, max_total_rays=19), accumulator=first)
-    solve(prepared.meshes, prepared=prepared, sky_params=sky_params(max_total_rays=23), accumulator=second)
-    assert acc.cumulative_rays == 42
-    assert set(acc.stats()["children"]) == {"matrix", "sky"}
-    assert acc.child("matrix") is first
+def test_independent_queries_keep_independent_cumulative_totals():
+    with Solver(scene(),device="cpu",auto_tune=False) as solver:
+        matrix = solver.start(Query.matrix(),options())
+        sky = solver.start(Query.sky(),replace(options(),sampling=replace(options().sampling,seed=18)))
+        first=matrix.advance(Budget(rays=19)); second=sky.advance(Budget(rays=23))
+        assert first.cumulative_rays+second.cumulative_rays == 42
+        matrix.advance(Budget(rays=7))
+        assert matrix.cumulative_rays == 26 and sky.cumulative_rays == 23
+        assert second.cumulative_rays == 23
 
 
 def test_zero_additional_budget_returns_existing_result_without_tracing():
-    prepared = PreparedSolver(scene(1))
-    params = sky_params(max_total_rays=13)
-    acc = SolveAccumulator()
-    expected = solve(prepared.meshes, prepared=prepared, sky_params=params, accumulator=acc)
-    with patch.object(_CpuWorkspace, "trace", side_effect=AssertionError("tracing with zero cap")):
-        actual = solve(prepared.meshes, prepared=prepared,
-                       sky_params=replace(params, max_total_rays=0), accumulator=acc)
-    assert actual == expected and acc.cumulative_rays == 13
+    with Solver(scene(1),device="cpu",auto_tune=False) as solver:
+        run=solver.start(Query.sky(),options())
+        expected=run.advance(Budget(rays=13))
+        with patch.object(_CpuWorkspace,"trace",side_effect=AssertionError("tracing with zero cap")):
+            actual=run.advance(Budget(rays=0))
+    np.testing.assert_array_equal(actual.dense(),expected.dense())
+    assert actual.cumulative_rays == 13 and actual.rays_used == 0

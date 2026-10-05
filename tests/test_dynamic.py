@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from raystrack import MatrixParams, PreparedSolver, view_factor_matrix
+from tests.v2_cases import MatrixCase, matrix_case
+from raystrack.utils.prepared import PreparedSolver
 from raystrack.utils.bvh import build_bvh, refit_bvh
 
 
@@ -147,16 +148,16 @@ class DynamicSceneTests(unittest.TestCase):
 
     def test_moving_blocker_changes_stationary_pair_and_matches_fresh_solve(self):
         for bvh in ("off", "builtin"):
-            with self.subTest(bvh=bvh), patch("raystrack.main._log"):
+            with self.subTest(bvh=bvh), patch("tests.v2_cases._log"):
                 prepared = PreparedSolver([square("emitter"), square("blocker", 0.5, 3),
                                            square("receiver", 2, 1, True)])
-                params = MatrixParams(samples=4, rays=16, min_iters=2, max_iters=2,
+                params = MatrixCase(samples=4, rays=16, min_iters=2, max_iters=2,
                                       seed=3, device="cpu", bvh=bvh, reciprocity=False)
-                before = view_factor_matrix(prepared.meshes, params, prepared=prepared)
+                before = matrix_case(prepared.meshes, params, prepared=prepared)
                 self.assertEqual(before["emitter"].get("receiver_front", 0), 0)
                 prepared.update_transform("blocker", translation(x=10))
-                after = view_factor_matrix(prepared.meshes, params, prepared=prepared)
-                fresh = view_factor_matrix(prepared.meshes, params)
+                after = matrix_case(prepared.meshes, params, prepared=prepared)
+                fresh = matrix_case(prepared.meshes, params)
                 self.assertEqual(after, fresh)
                 self.assertGreater(after["emitter"].get("receiver_front", 0), 0)
 
@@ -220,7 +221,7 @@ class DynamicSceneTests(unittest.TestCase):
             from types import SimpleNamespace
             import numpy as np
             from numba import cuda
-            from raystrack import PreparedSolver
+            from raystrack.utils.prepared import PreparedSolver
             cuda.get_current_device = lambda: SimpleNamespace(id=0)
             v = np.array([[0,0,0], [1,0,0], [0,1,0], [1,1,0]], np.float32)
             f = np.array([[0,1,2], [1,3,2]], np.int32)

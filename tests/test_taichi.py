@@ -210,30 +210,31 @@ def test_grouped_iterations_match_individual_readbacks(gpu):
 
 def test_public_matrix_budget_and_stationary_repeat(gpu):
     from dataclasses import replace
-    from raystrack import MatrixParams, PreparedSolver, view_factor_matrix
+    from tests.v2_cases import MatrixCase, matrix_case
+    from raystrack.utils.prepared import PreparedSolver
     meshes = _public_scene()
     prepared = PreparedSolver(meshes)
-    params = MatrixParams(samples=4, rays=16, max_iters=4, min_iters=2,
+    params = MatrixCase(samples=4, rays=16, max_iters=4, min_iters=2,
                           seed=11, bvh="builtin", device=gpu.arch, reciprocity=False,
                           emitter_names=["lower"], max_total_rays=37, ray_batch_size=7)
     used = []
-    actual = view_factor_matrix(meshes, params, prepared=prepared, progress=used.append)
-    expected = view_factor_matrix(meshes, replace(params, device="cpu"))
+    actual = matrix_case(meshes, params, prepared=prepared, progress=used.append)
+    expected = matrix_case(meshes, replace(params, device="cpu"))
     _assert_results_match(actual, expected)
     assert sum(used) == 37 and max(used) <= 7
-    _assert_results_match(view_factor_matrix(meshes, params, prepared=prepared), actual)
+    _assert_results_match(matrix_case(meshes, params, prepared=prepared), actual)
 
 
 def test_public_combined_scene_discrete_sky_parity(gpu):
     from dataclasses import replace
-    from raystrack import MatrixParams, SkyParams, view_factor_outside_workflow
+    from tests.v2_cases import MatrixCase, SkyCase, outside_case
     meshes = _public_scene()
-    matrix = MatrixParams(samples=4, rays=16, max_iters=4, min_iters=4, seed=11,
+    matrix = MatrixCase(samples=4, rays=16, max_iters=4, min_iters=4, seed=11,
                           bvh="builtin", device="taichi", reciprocity=False, tol=0)
-    sky = SkyParams(samples=4, rays=16, max_iters=4, min_iters=4, seed=11,
+    sky = SkyCase(samples=4, rays=16, max_iters=4, min_iters=4, seed=11,
                     bvh="builtin", device="taichi", discrete=True, tol=0)
-    actual = view_factor_outside_workflow(meshes, matrix_params=matrix, sky_params=sky)
-    expected = view_factor_outside_workflow(meshes,
+    actual = outside_case(meshes, matrix_params=matrix, sky_params=sky)
+    expected = outside_case(meshes,
                  matrix_params=replace(matrix, device="cpu"),
                  sky_params=replace(sky, device="cpu"))
     for a, b in zip(actual, expected):
@@ -241,36 +242,37 @@ def test_public_combined_scene_discrete_sky_parity(gpu):
 
 
 def test_public_dynamic_refit_matches_fresh_solve(gpu):
-    from raystrack import MatrixParams, PreparedSolver, view_factor_matrix
+    from tests.v2_cases import MatrixCase, matrix_case
+    from raystrack.utils.prepared import PreparedSolver
     prepared = PreparedSolver(_public_scene())
-    params = MatrixParams(samples=4, rays=16, max_iters=3, min_iters=3,
+    params = MatrixCase(samples=4, rays=16, max_iters=3, min_iters=3,
                           seed=11, bvh="builtin", device="taichi", reciprocity=False,
                           emitter_names=["lower"], max_total_rays=150, ray_batch_size=19)
-    before = view_factor_matrix(prepared.meshes, params, prepared=prepared)
+    before = matrix_case(prepared.meshes, params, prepared=prepared)
     transform = np.eye(4)
     transform[0, 3] = 2
     prepared.update_transform("blocker", transform)
-    updated = view_factor_matrix(prepared.meshes, params, prepared=prepared)
-    fresh = view_factor_matrix(prepared.meshes, params)
+    updated = matrix_case(prepared.meshes, params, prepared=prepared)
+    fresh = matrix_case(prepared.meshes, params)
     _assert_results_match(updated, fresh)
     assert before != updated
 
 
 def test_public_deferred_checkpoints_match_cpu(gpu):
     from dataclasses import replace
-    from raystrack import MatrixParams, SkyParams, view_factor_matrix, view_factor_to_tregenza_sky
+    from tests.v2_cases import MatrixCase, SkyCase, matrix_case, sky_case
     meshes = _public_scene()
-    matrix = MatrixParams(samples=4, rays=16, max_iters=6, min_iters=2,
+    matrix = MatrixCase(samples=4, rays=16, max_iters=6, min_iters=2,
                           seed=11, bvh="builtin", device="taichi", reciprocity=False,
                           tol=0, convergence_interval=3)
-    actual = view_factor_matrix(meshes, matrix)
-    expected = view_factor_matrix(meshes, replace(matrix, device="cpu"))
+    actual = matrix_case(meshes, matrix)
+    expected = matrix_case(meshes, replace(matrix, device="cpu"))
     _assert_results_match(actual, expected)
-    sky = SkyParams(samples=4, rays=16, max_iters=6, min_iters=2,
+    sky = SkyCase(samples=4, rays=16, max_iters=6, min_iters=2,
                     seed=11, bvh="builtin", device="taichi", discrete=False,
                     tol=0, convergence_interval=3)
-    actual_sky = view_factor_to_tregenza_sky(meshes, sky)
-    expected_sky = view_factor_to_tregenza_sky(meshes, replace(sky, device="cpu"))
+    actual_sky = sky_case(meshes, sky)
+    expected_sky = sky_case(meshes, replace(sky, device="cpu"))
     _assert_results_match(actual_sky, expected_sky)
 
 
@@ -297,27 +299,25 @@ def test_sample_index_overflow_rejected_before_allocation(gpu):
                         surf_active=np.ones(1, np.uint8), emit_sid=0)
 
 
-def test_portable_preview_single_worker(gpu):
-    from raystrack import MatrixParams, PreparedSolver, PreviewSession
-    prepared = PreparedSolver(_public_scene())
-    params = MatrixParams(samples=2, rays=8, max_iters=3, min_iters=3,
-                          device="taichi", reciprocity=False,
-                          emitter_names=["lower"], bvh="builtin")
-    with PreviewSession(prepared, params) as session:
-        first = session.submit(max_total_rays=37, max_time_ms=None,
-                               ray_batch_size=7).result(timeout=30)
-        assert first.completed and first.rays_used == 37
-        transform = np.eye(4)
-        transform[0, 3] = 1
-        session.update_transform("blocker", transform)
-        updated = session.submit(max_total_rays=37, max_time_ms=None,
-                                 ray_batch_size=7).result(timeout=30)
-        assert updated.completed and updated.scene_version == first.scene_version + 1
-        assert session.latest is updated
+def test_portable_run_single_worker(gpu):
+    from raystrack import Solver, Query, SolveOptions, Sampling, Accuracy, Budget
+    from tests.v2_cases import scene_for
+    current = scene_for(_public_scene())
+    opts = SolveOptions(Sampling(density=2, rays_per_cell=8),
+                        Accuracy(max_replicates=3, min_replicates=3, tolerance=0), batch_size=7)
+    with Solver(current, device=gpu.arch, auto_tune=False, bvh="builtin") as solver:
+        first_run = solver.start(Query.row("lower"), opts)
+        first = first_run.submit(Budget(rays=37)).result(timeout=30)
+        assert first.rays_used == 37 and first.status != "cancelled"
+        transform = np.eye(4); transform[0,3] = 1
+        current.update_transform("blocker", transform)
+        assert first_run.status == "invalidated"
+        updated = solver.start(Query.row("lower"), opts).submit(Budget(rays=37)).result(timeout=30)
+        assert updated.rays_used == 37 and updated.scene_revision == first.scene_revision+1
 
 
 def test_dynamic_device_cache_does_not_retain_old_snapshots(gpu):
-    from raystrack import PreparedSolver
+    from raystrack.utils.prepared import PreparedSolver
     prepared = PreparedSolver(_public_scene())
     emitter = prepared.get_emitter(0, samples=2, rays=8, flip_faces=False)
     controls = dict(rays=8, cp_grid=[.11, .19], cp_dims=[.3, .1, .6, .2, .8],
@@ -340,65 +340,63 @@ def test_dynamic_device_cache_does_not_retain_old_snapshots(gpu):
     assert old_scene() is None
 
 
-def test_portable_runtime_can_initialize_on_preview_worker(gpu):
+def test_portable_runtime_can_initialize_on_run_worker(gpu):
     program = """
 import numpy as np
-from raystrack import MatrixParams, PreparedSolver, PreviewSession
-v = np.array([[-1,-1,0], [1,-1,0], [1,1,0], [-1,1,0]], np.float32)
-f = np.array([[0,1,2], [0,2,3]], np.int32)
-meshes = [('lower', v, f), ('upper', v + [0,0,1], f[:, [0,2,1]])]
-prepared = PreparedSolver(meshes)
-params = MatrixParams(samples=2, rays=8, max_iters=3, min_iters=3,
-                      device='taichi', reciprocity=False, emitter_names=['lower'])
-with PreviewSession(prepared, params) as session:
-    result = session.submit(max_total_rays=19, max_time_ms=None,
-                            ray_batch_size=7).result(timeout=30)
-    assert result.completed and result.rays_used == 19
-    assert 'upper_front' in result.scene['lower']
+from raystrack import Mesh, Scene, Solver, Query, SolveOptions, Sampling, Accuracy, Budget, Channel
+v = np.array([[-1,-1,0],[1,-1,0],[1,1,0],[-1,1,0]], np.float32)
+f = np.array([[0,1,2],[0,2,3]], np.int32)
+current = Scene.from_meshes({'lower': Mesh(v,f), 'upper': Mesh(v+[0,0,1],f[:,::-1])})
+opts = SolveOptions(Sampling(density=2,rays_per_cell=8),
+                    Accuracy(max_replicates=3,min_replicates=3,tolerance=0),batch_size=7)
+with Solver(current, device='vulkan', auto_tune=False) as solver:
+    run = solver.start(Query.row('lower'),opts)
+    result = run.submit(Budget(rays=19)).result(timeout=30)
+    assert result.rays_used == 19
+    assert result.value('lower',Channel('surface','upper','front')) > 0
 """
-    result = subprocess.run([sys.executable, "-c", program], capture_output=True,
-                            text=True, timeout=40, env=os.environ.copy())
-    assert result.returncode == 0, result.stdout + result.stderr
+    result = subprocess.run([sys.executable,"-c",program],capture_output=True,
+                            text=True,timeout=40,env=os.environ.copy())
+    assert result.returncode == 0, result.stdout+result.stderr
 
 
 def test_singleton_sky_matches_cpu(gpu):
     from dataclasses import replace
-    from raystrack import SkyParams, view_factor_to_tregenza_sky
+    from tests.v2_cases import SkyCase, sky_case
     meshes = [_square("upward", 0)]
-    params = SkyParams(samples=2, rays=8, max_iters=3, min_iters=3,
+    params = SkyCase(samples=2, rays=8, max_iters=3, min_iters=3,
                        device="taichi", seed=11)
-    actual = view_factor_to_tregenza_sky(meshes, params)
-    expected = view_factor_to_tregenza_sky(meshes, replace(params, device="cpu"))
+    actual = sky_case(meshes, params)
+    expected = sky_case(meshes, replace(params, device="cpu"))
     _assert_results_match(actual, expected)
     assert actual["upward"]["Sky"] == 1.0
 
 
-def test_portable_preview_supersedes_queued_frames(gpu, monkeypatch):
-    from concurrent.futures import CancelledError
-    from raystrack import MatrixParams, PreparedSolver, PreviewSession
-    started, release = threading.Event(), threading.Event()
-    generate = gpu._generate
-
+def test_portable_run_queues_additive_advances(gpu, monkeypatch):
+    from raystrack import Solver, Query, SolveOptions, Sampling, Accuracy, Budget
+    from tests.v2_cases import scene_for
+    started,release=threading.Event(),threading.Event()
+    generate=gpu._generate
     def gated_generate(*args):
         if not started.is_set():
             started.set()
             assert release.wait(10)
         return generate(*args)
-
-    monkeypatch.setattr(gpu, "_generate", gated_generate)
-    params = MatrixParams(samples=2, rays=8, max_iters=3, min_iters=3,
-                          device="taichi", reciprocity=False, emitter_names=["lower"])
-    with PreviewSession(PreparedSolver(_public_scene()), params) as session:
-        first = session.submit(max_total_rays=19, max_time_ms=None, ray_batch_size=7)
+    monkeypatch.setattr(gpu,"_generate",gated_generate)
+    opts=SolveOptions(Sampling(density=2,rays_per_cell=8),
+                      Accuracy(max_replicates=3,min_replicates=3,tolerance=0),batch_size=7)
+    with Solver(scene_for(_public_scene()),device=gpu.arch,auto_tune=False) as solver:
+        run=solver.start(Query.row("lower"),opts)
+        first=run.submit(Budget(rays=19))
         try:
             assert started.wait(10)
-            queued = session.submit(max_total_rays=23, max_time_ms=None, ray_batch_size=7)
-            latest = session.submit(max_total_rays=37, max_time_ms=None, ray_batch_size=7)
+            queued=run.submit(Budget(rays=23))
+            latest=run.submit(Budget(rays=37))
+            assert not queued.done() and not latest.done()
         finally:
             release.set()
-        assert first.result(timeout=30).cancelled
-        with pytest.raises(CancelledError):
-            queued.result(timeout=30)
-        result = latest.result(timeout=30)
-        assert result.completed and result.rays_used == 37
-        assert session.latest is result
+        assert first.result(timeout=30).cumulative_rays == 19
+        assert queued.result(timeout=30).cumulative_rays == 42
+        result=latest.result(timeout=30)
+        assert result.rays_used == 37 and result.cumulative_rays == 79
+        assert run.result is result

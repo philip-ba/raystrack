@@ -14,7 +14,8 @@ class CudaSimulatorTests(unittest.TestCase):
             from dataclasses import replace
             import numpy as np
             from numba import cuda
-            from raystrack import MatrixParams, SkyParams, PreparedSolver, view_factor_outside_workflow
+            from tests.v2_cases import MatrixCase, SkyCase, outside_case
+            from raystrack.utils.prepared import PreparedSolver
             cuda.get_current_device = lambda: SimpleNamespace(id=0, MAX_THREADS_PER_BLOCK=256)
             v = np.array([[-1,-1,0], [1,-1,0], [1,1,0], [-1,1,0]], np.float32)
             f = np.array([[0,1,2], [0,2,3]], np.int32)
@@ -24,17 +25,18 @@ class CudaSimulatorTests(unittest.TestCase):
                               convergence_interval=3, bvh='builtin', device=device,
                               max_total_rays=budget, ray_batch_size=7,
                               cuda_async=async_, gpu_raygen=raygen)
-                return view_factor_outside_workflow(meshes if prepared is None else prepared.meshes,
-                    matrix_params=MatrixParams(**common, reciprocity_mode='bidirectional'),
-                    sky_params=SkyParams(**common, discrete=True),
+                return outside_case(meshes if prepared is None else prepared.meshes,
+                    matrix_params=MatrixCase(**common, reciprocity=False),
+                    sky_params=SkyCase(**common, discrete=True),
                     prepared=prepared, progress=callback)
             expected = solve('cpu')
             prepared = PreparedSolver(meshes)
             assert solve('cuda', prepared=prepared) == expected
-            ws = list(prepared._execution_workspace_cache.values())[0]
+            engine = next(iter(prepared._case_solvers.values()))._prepared
+            ws = list(engine._execution_workspace_cache.values())[0]
             assert ws.summary_capacity == 3
             assert solve('cuda', prepared=prepared) == expected
-            assert list(prepared._execution_workspace_cache.values())[0] is ws
+            assert list(engine._execution_workspace_cache.values())[0] is ws
             for async_, raygen in ((True, True), (False, False), (True, False)):
                 counts=[]
                 actual=solve('cuda', 43, counts.append, async_=async_, raygen=raygen)
@@ -54,7 +56,7 @@ class CudaSimulatorTests(unittest.TestCase):
             from types import SimpleNamespace
             import numpy as np
             from numba import cuda
-            from raystrack import MatrixParams, SkyParams, view_factor_outside_workflow
+            from tests.v2_cases import MatrixCase, SkyCase, outside_case
 
             cuda.get_current_device = lambda: SimpleNamespace(id=0, MAX_THREADS_PER_BLOCK=256)
             def square(name, z, h, down=False):
@@ -67,10 +69,10 @@ class CudaSimulatorTests(unittest.TestCase):
                 common = dict(samples=2, rays=1, seed=3, device=device,
                               bvh='off', cuda_async=async_, gpu_raygen=raygen,
                               min_iters=1, max_iters=1)
-                return view_factor_outside_workflow(
+                return outside_case(
                     meshes,
-                    matrix_params=MatrixParams(**common, reciprocity_mode='bidirectional'),
-                    sky_params=SkyParams(**common),
+                    matrix_params=MatrixCase(**common, reciprocity=False),
+                    sky_params=SkyCase(**common),
                 )
 
             expected = solve('cpu', False, False)

@@ -16,7 +16,6 @@ import math
 from pathlib import Path
 import sys
 import time
-from unittest.mock import patch
 
 import numpy as np
 
@@ -39,10 +38,6 @@ def cases(prepared_type):
         rectangle_xy("emitter", 1, 1, 0),
         rectangle_xy("receiver", 1, 1, 1, normal=-1),
     ])
-    if square.acceleration == "instanced":
-        square.get_instanced_scene()
-    else:
-        square.get_scene(use_bvh=True)
     for gap in (0.5, 1.0, 2.0):
         transform = np.eye(4)
         transform[2, 3] = gap - 1.0
@@ -84,47 +79,47 @@ def main() -> None:
         parser.error("seed ranges must be disjoint (spacing >= iterations)")
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-    from raystrack import MatrixParams, PreparedSolver, view_factor_matrix
-    from raystrack.devices import resolve_backend
+    from raystrack import Mesh, Scene, Solver, Query, SolveOptions, Sampling, Accuracy, Channel
 
     report = {
         "settings": {"samples": args.samples, "rays": args.rays,
                      "iterations": args.iterations, "seeds": args.seeds,
                      "sampling_mode": args.sampling_mode,
                      "absolute_tolerance_per_seed": args.atol},
-        "notes": ["Selected emitter forces dynamic execution; square cases reuse/refit one BVH.",
+        "notes": ["V2 Query.row selects the emitter; moving square cases reuse one Solver and scene acceleration.",
                   "Every seed runs the full iteration count without convergence early stopping.",
                   "Disc meshes approximate curved boundaries with 256 segments.",
                   "Elapsed times include preparation/cache loading and compilation; not a speed comparison.",
                   "This does not validate uncertainty coverage or all supported hardware."],
         "measurements": [],
     }
-    with patch("raystrack.main._log"):
-        for device in dict.fromkeys(args.devices):
-            backend = resolve_backend(device)
-            for acceleration in dict.fromkeys(args.accelerations):
-                factory = lambda meshes: PreparedSolver(meshes, acceleration=acceleration)
-                for name, prepared, reference in cases(factory):
+    for device in dict.fromkeys(args.devices):
+        for acceleration in dict.fromkeys(args.accelerations):
+            cache = {}
+            factory = lambda meshes: Scene.from_meshes({sid: Mesh(v, f) for sid, v, f in meshes})
+            try:
+                for name, scene, reference in cases(factory):
+                    if id(scene) not in cache:
+                        cache[id(scene)] = Solver(scene, device=device, acceleration=acceleration,
+                                                  bvh="builtin", auto_tune=False)
+                    solver = cache[id(scene)]
                     measurements = []
                     for seed in args.seeds:
-                        params = MatrixParams(samples=args.samples, rays=args.rays,
-                            min_iters=args.iterations, max_iters=args.iterations,
-                            seed=seed, tol=0, device=device, bvh="builtin",
-                            reciprocity=False, emitter_names=["emitter"],
-                            sampling_mode=args.sampling_mode,
-                            ray_batch_size=65536)
+                        options = SolveOptions(Sampling(density=args.samples, rays_per_cell=args.rays,
+                                                        seed=seed, mode=args.sampling_mode),
+                            Accuracy(max_replicates=args.iterations, min_replicates=args.iterations,
+                                     tolerance=0), batch_size=65536)
                         started = time.perf_counter()
-                        result = view_factor_matrix(prepared.meshes, params=params, prepared=prepared)
-                        value = result["emitter"].get("receiver_front", 0.0)
-                        n_once = prepared.get_emitter(0, samples=args.samples,
-                            rays=args.rays, flip_faces=False).n_cells * args.rays
-                        error = abs(value - reference)
+                        result = solver.solve(Query.row("emitter", receivers=["receiver"]), options)
+                        value = result.value("emitter", Channel("surface", "receiver", "front"))
+                        error = abs(value-reference)
                         measurements.append({"seed": seed, "view_factor": value,
                             "absolute_error": error, "passed": bool(error <= args.atol),
-                            "rays": n_once * args.iterations,
-                            "elapsed_ms": (time.perf_counter() - started) * 1000})
+                            "rays": result.rays_used, "status": result.status,
+                            "elapsed_ms": (time.perf_counter()-started)*1000})
+                    backend = result.execution["backend"]
                     row = {"case": name, "device": device, "resolved_backend": backend,
-                        "acceleration": acceleration, "scene_version": prepared.version, "analytical": reference,
+                        "acceleration": acceleration, "scene_revision": scene.revision, "analytical": reference,
                         "mean_view_factor": float(np.mean([m["view_factor"] for m in measurements])),
                         "max_absolute_error": max(m["absolute_error"] for m in measurements),
                         "passed": all(m["passed"] for m in measurements), "seeds": measurements}
@@ -132,6 +127,9 @@ def main() -> None:
                     print(f"{device:7s} {acceleration:9s} {name:33s} analytical={reference:.8f} "
                           f"mean={row['mean_view_factor']:.8f} "
                           f"max_error={row['max_absolute_error']:.3g} pass={row['passed']}", flush=True)
+            finally:
+                for solver in cache.values():
+                    solver.close()
 
     report["all_passed"] = all(row["passed"] for row in report["measurements"])
     if args.json is not None:

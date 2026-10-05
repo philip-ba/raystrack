@@ -803,7 +803,7 @@ class PreparedSolver:
     def _cuda_key(self, cuda) -> Tuple[int, int]:
         from numba import config
 
-        device_id = int(cuda.get_current_device().id)
+        device_id = 0 if config.ENABLE_CUDASIM else int(cuda.get_current_device().id)
         context = cuda.current_context()
         if config.ENABLE_CUDASIM:
             token = device_id

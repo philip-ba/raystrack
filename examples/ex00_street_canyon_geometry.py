@@ -7,7 +7,7 @@ Generates a simple street canyon geometry:
   stacked 5 stories high (total height 20 m). Facades are 8 m apart.
 - A road surface between facades sized 10x8 m.
 
-Saves meshes to "street_canyon.json" in this folder.
+Saves an immutable geometry snapshot to a new .raystrack directory in this folder.
 
 All inputs are defined directly in the script: `story_h`, `stories`, `facade_width`,
 and `gap`. The function `rect_plane_x` builds one rectangular facade panel for a
@@ -103,15 +103,10 @@ def build_street_canyon():
 
 
 def main():
-    ensure_repo_on_path()
-    from raystrack.io import save_meshes_json
-
-    meshes = build_street_canyon()
-    here = Path(__file__).resolve().parent
-    out = here / "street_canyon.json"
-    save_path = save_meshes_json(meshes, str(out))
-    print(f"Saved street canyon geometry to: {save_path}")
-    print(f"Meshes: {[name for name,_,_ in meshes]}")
+    from _support import Mesh, Scene, save_snapshot
+    scene=Scene.from_meshes({sid:Mesh(v,f) for sid,v,f in build_street_canyon()})
+    print("Saved geometry:",save_snapshot("street_canyon",scene))
+    print("Surface IDs:",scene.surface_ids)
 
 
 if __name__ == "__main__":

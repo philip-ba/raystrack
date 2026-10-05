@@ -55,168 +55,107 @@ def timed(function):
     return value, (time.perf_counter() - started) * 1000.0
 
 
-def flattened(result):
-    return {(kind, emitter, receiver): float(value)
-            for kind in ("scene", "sky", "rest")
-            for emitter, row in getattr(result, kind).items()
-            for receiver, value in row.items()}
+def difference(a, b):
+    return float(np.max(np.abs(a.dense()-b.dense()), initial=0))
 
 
-def difference(updated, fresh):
-    a, b = flattened(updated), flattened(fresh)
-    return max((abs(a.get(key, 0.0) - b.get(key, 0.0)) for key in set(a) | set(b)), default=0.0)
-
-
-def main() -> None:
+def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--device", choices=("cpu", "auto", "cuda", "vulkan", "metal", "taichi"), default="cpu")
-    parser.add_argument("--acceleration", choices=("flat", "instanced"), default="flat")
-    parser.add_argument("--warmup", action="store_true", help="measure a plan before the first solve")
+    parser.add_argument("--device", choices=("cpu","auto","cuda","vulkan","metal","taichi"), default="cpu")
+    parser.add_argument("--acceleration", choices=("flat","instanced"), default="flat")
+    parser.add_argument("--warmup", action="store_true")
     parser.add_argument("--frames", type=positive, default=5)
-    parser.add_argument("--subdivisions", type=positive, default=8, help="grid subdivisions per plane")
-    parser.add_argument("--budget", type=positive, default=4096, help="maximum traced rays per solve")
-    parser.add_argument("--samples", type=positive, default=4, help="emission sampling density")
-    parser.add_argument("--rays", type=positive, default=32, help="rays per sampling cell")
+    parser.add_argument("--subdivisions", type=positive, default=8)
+    parser.add_argument("--budget", type=positive, default=4096)
+    parser.add_argument("--samples", type=positive, default=4)
+    parser.add_argument("--rays", type=positive, default=32)
     parser.add_argument("--batch-size", type=positive, default=1024)
-    parser.add_argument("--atol", type=float, default=1e-6, help="updated/fresh absolute VF tolerance")
-    parser.add_argument("--json", type=Path, help="save a machine-readable timing and correctness report")
-    args = parser.parse_args()
+    parser.add_argument("--atol", type=float, default=1e-6)
+    parser.add_argument("--json", type=Path)
+    args=parser.parse_args()
     if not math.isfinite(args.atol) or args.atol < 0:
         parser.error("--atol must be finite and nonnegative")
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-    from raystrack import MatrixParams, PreparedSolver, SkyParams
-    from raystrack.devices import resolve_backend
-    from raystrack.preview import PreviewSession
-
-    meshes = [plane("emitter", 0.0, 1.0, args.subdivisions),
-              plane("receiver", 2.0, 1.0, args.subdivisions, downward=True),
-              plane("blocker", 1.0, 1.2, args.subdivisions)]
-    # Minimum g is four cells per side; the emitter area is four square units.
-    cells = max(4, int(math.ceil(math.sqrt(4.0 * args.samples)))) ** 2
-    per_iteration = cells * args.rays
-    iterations = max(2, int(math.ceil(args.budget / per_iteration)))
-    common = dict(samples=args.samples, rays=args.rays, seed=13, device=args.device,
-                  bvh="builtin", min_iters=iterations, max_iters=iterations,
-                  tol=0.0, ray_batch_size=args.batch_size, emitter_names=["emitter"],
-                  max_total_rays=args.budget)
-    mp, sp = MatrixParams(**common, reciprocity=False), SkyParams(**common)
-
-    if args.device == "auto":
-        backend, device_init_ms = "auto", 0.0
-    else:
-        backend, device_init_ms = timed(lambda: resolve_backend(args.device))
-
-    def prepare(meshes):
-        item = PreparedSolver(meshes, acceleration=args.acceleration)
-        refresh(item)
-        return item
-
-    def refresh(item):
-        if item.acceleration == "instanced":
-            item.get_instanced_scene()
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"src"))
+    from dataclasses import replace
+    from raystrack import Mesh, Scene, Solver, Query, SolveOptions, Sampling, Accuracy, Budget, Channel
+    triples=[plane("emitter",0,1,args.subdivisions),
+             plane("receiver",2,1,args.subdivisions,downward=True),
+             plane("blocker",1,1.2,args.subdivisions)]
+    scene=Scene.from_meshes({sid:Mesh(v,f) for sid,v,f in triples})
+    cells=max(4,int(math.ceil(math.sqrt(4*args.samples))))**2
+    iterations=max(2,int(math.ceil(args.budget/(cells*args.rays))))
+    options=SolveOptions(Sampling(density=args.samples,rays_per_cell=args.rays,seed=13),
+                        Accuracy(max_replicates=iterations,min_replicates=iterations,tolerance=0),
+                        batch_size=args.batch_size)
+    query=Query.row("emitter",sky="merged")
+    def make(current):
+        return Solver(current,device=args.device,acceleration=args.acceleration,bvh="builtin",auto_tune=False)
+    def refresh(solver):
+        # Internal instrumentation separates lazy preparation from public solve.
+        # The benchmark performs the same preparation for reused and fresh solvers.
+        prepared=solver._sync_scene()
+        if args.acceleration == "instanced":
+            prepared.get_instanced_scene()
         else:
-            item.get_scene(use_bvh=True)
-        item.get_emitters(samples=mp.samples, rays=mp.rays, flip_faces=False)
-        item.get_mesh_bounds()
-
-    prepared, cold_prepare_ms = timed(lambda: prepare(meshes))
-    report = {
-        "requested_device": args.device,
-        "resolved_backend": backend,
-        "acceleration": args.acceleration,
-        "triangles": prepared.total_faces,
-        "selected_emitters": ["emitter"],
-        "frames": args.frames,
-        "max_total_rays_per_solve": args.budget,
-        "absolute_tolerance": args.atol,
-        "device_initialization_ms": device_init_ms,
-        "cold_prepare_ms": cold_prepare_ms,
-        "notes": ["Time budget disabled for equal-budget comparisons.",
-                  "Cold timings include first-call compilation/cache loading and device setup where applicable.",
-                  "The first frame's refit update can include first-call compilation/cache loading; later frames reuse it.",
-                  "Tracing solve timings include ray generation, reduction and result processing.",
-                  "Updated/fresh agreement checks cache correctness, not statistical accuracy."],
-        "measurements": [],
-    }
-
-    # Keep benchmark output in the current terminal, without log-console windows.
-    with patch("raystrack.main._log"):
-        with PreviewSession(prepared, mp, sp) as session:
-            if args.warmup:
-                report["warmup"] = session.warmup().as_dict()
-                report["notes"].append("First solve timing follows explicit calibration when --warmup is used.")
-            cold, report["cold_solve_ms"] = timed(session.solve)
-            warm, report["warm_solve_ms"] = timed(session.solve)
-            report["execution_plan"] = getattr(prepared, "_last_execution_plan", {})
-            backend = report["execution_plan"].get("backend", backend)
-            report["resolved_backend"] = backend
-            report["cold_rays"] = cold.rays_used
-            report["warm_rays"] = warm.rays_used
-            report["warm_repeat_max_abs_difference"] = difference(cold, warm)
-            positions = np.linspace(0.0, 3.0, args.frames) if args.frames > 1 else [0.0]
-            for frame, x in enumerate(positions):
-                transform = np.eye(4)
-                transform[0, 3] = x
-                _, update_ms = timed(lambda: session.update_transform("blocker", transform))
-                _, refresh_ms = timed(lambda: refresh(prepared))
-                updated, updated_solve_ms = timed(session.solve)
-                fresh, fresh_prepare_ms = timed(lambda: prepare(prepared.meshes))
-                with PreviewSession(fresh, mp, sp) as fresh_session:
-                    reference, fresh_solve_ms = timed(fresh_session.solve)
-                error = difference(updated, reference)
-                matched = (updated.completed and reference.completed
-                           and updated.rays_used == reference.rays_used
-                           and error <= args.atol)
-                report["measurements"].append({
-                    "frame": frame,
-                    "scene_version": updated.scene_version,
-                    "blocker_x": float(x),
-                    "refit_update_ms": update_ms,
-                    "updated_cache_refresh_ms": refresh_ms,
-                    "updated_prepare_total_ms": update_ms + refresh_ms,
-                    "fresh_bvh_prepare_ms": fresh_prepare_ms,
-                    "updated_solve_ms": updated_solve_ms,
-                    "fresh_solve_ms": fresh_solve_ms,
-                    "updated_frame_total_ms": update_ms + refresh_ms + updated_solve_ms,
-                    "fresh_frame_total_ms": fresh_prepare_ms + fresh_solve_ms,
-                    "rays_used": updated.rays_used,
-                    "fresh_rays_used": reference.rays_used,
-                    "max_abs_difference": error,
-                    "accuracy_pass": bool(matched),
-                    "receiver_vf": updated.scene.get("emitter", {}).get("receiver_front", 0.0),
-                    "sky_vf": updated.sky.get("emitter", {}).get("Sky", 0.0),
-                })
-            refined, refinement_ms = timed(session.refine)
-            report["stationary_refinement"] = {
-                "scene_version": refined.scene_version,
-                "rays_used": refined.rays_used,
-                "cumulative_rays": refined.cumulative_rays,
-                "elapsed_ms": refinement_ms,
-                "receiver_vf": refined.scene.get("emitter", {}).get("receiver_front", 0.0),
-            }
-
-    rows = report["measurements"]
-    report["all_accuracy_checks_passed"] = all(row["accuracy_pass"] for row in rows)
-    report["mean_updated_prepare_ms"] = float(np.mean([row["updated_prepare_total_ms"] for row in rows]))
-    report["mean_fresh_prepare_ms"] = float(np.mean([row["fresh_bvh_prepare_ms"] for row in rows]))
-    print(f"Backend={backend}; acceleration={args.acceleration}; triangles={prepared.total_faces}; budget={args.budget} rays/solve")
-    print(f"Cold prepare={cold_prepare_ms:.3f} ms; first solve={report['cold_solve_ms']:.3f} ms; "
-          f"warm solve={report['warm_solve_ms']:.3f} ms")
-    print("frame  x     refit+refresh  fresh_prepare  updated_solve  fresh_solve  max_abs_diff  pass")
-    for row in rows:
-        print(f"{row['frame']:5d}  {row['blocker_x']:4.1f}  {row['updated_prepare_total_ms']:13.3f}  "
-              f"{row['fresh_bvh_prepare_ms']:13.3f}  {row['updated_solve_ms']:13.3f}  "
-              f"{row['fresh_solve_ms']:11.3f}  {row['max_abs_difference']:12.3g}  {row['accuracy_pass']}")
-    print(f"Stationary refinement: {refined.rays_used} additional rays, {refined.cumulative_rays} cumulative rays, {refinement_ms:.3f} ms, "
-          f"version {refined.scene_version}")
-    print("Timings depend on scene, workload, device and cache state.")
-    if args.json is not None:
-        args.json.parent.mkdir(parents=True, exist_ok=True)
-        args.json.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-        print(f"Saved report: {args.json}")
+            prepared.get_scene(use_bvh=True)
+        prepared.get_emitters(samples=args.samples,rays=args.rays,flip_faces=False)
+        prepared.get_mesh_bounds()
+        return prepared
+    report={"api":"v2","requested_device":args.device,"acceleration":args.acceleration,
+            "triangles":sum(len(f) for _,_,f in triples),"frames":args.frames,
+            "max_total_rays_per_solve":args.budget,"absolute_tolerance":args.atol,
+            "notes":["Equal additional ray budgets; no time deadline or automatic probes.",
+                     "Preparation instrumented with internal cache refresh so lazy work is measured separately.",
+                     "Transform commit, solver synchronization/emitter preparation, and tracing are separate timings.",
+                     "Cold timings include compilation/cache loading; only warmed timings compare steady workloads.",
+                     "Updated/fresh agreement checks numerical cache correctness, not statistical accuracy."],
+            "measurements":[]}
+    with make(scene) as solver:
+        prepared,report["cold_prepare_ms"]=timed(lambda:refresh(solver))
+        if args.warmup:
+            report["warmup"]=solver.warmup(query,options).as_dict()
+        cold,report["cold_solve_ms"]=timed(lambda:solver.solve(query,options,Budget(rays=args.budget)))
+        warm,report["warm_solve_ms"]=timed(lambda:solver.solve(query,options,Budget(rays=args.budget)))
+        report["execution_plan"]=dict(warm.execution)
+        report["resolved_backend"]=warm.execution["backend"]
+        report["cold_rays"],report["warm_rays"]=cold.rays_used,warm.rays_used
+        report["warm_repeat_max_abs_difference"]=difference(cold,warm)
+        positions=np.linspace(0,3,args.frames) if args.frames > 1 else [0]
+        for frame,x in enumerate(positions):
+            transform=np.eye(4); transform[0,3]=x
+            _,update_ms=timed(lambda:scene.update_transform("blocker",transform))
+            _,refresh_ms=timed(lambda:refresh(solver))
+            run=solver.start(query,options)
+            updated,solve_ms=timed(lambda:run.advance(Budget(rays=args.budget)))
+            with make(Scene(scene.surfaces)) as fresh:
+                _,fresh_prepare_ms=timed(lambda:refresh(fresh))
+                reference,fresh_solve_ms=timed(lambda:fresh.solve(query,options,Budget(rays=args.budget)))
+            error=difference(updated,reference)
+            report["measurements"].append({"frame":frame,"scene_revision":scene.revision,
+                "blocker_x":float(x),"transform_commit_ms":update_ms,
+                "updated_cache_refresh_ms":refresh_ms,"updated_prepare_total_ms":update_ms+refresh_ms,
+                "fresh_bvh_prepare_ms":fresh_prepare_ms,"updated_solve_ms":solve_ms,
+                "fresh_solve_ms":fresh_solve_ms,"updated_frame_total_ms":update_ms+refresh_ms+solve_ms,
+                "fresh_frame_total_ms":fresh_prepare_ms+fresh_solve_ms,"rays_used":updated.rays_used,
+                "fresh_rays_used":reference.rays_used,"max_abs_difference":error,
+                "accuracy_pass":bool(error <= args.atol and updated.rays_used == reference.rays_used),
+                "receiver_vf":updated.value("emitter",Channel("surface","receiver","front")),
+                "sky_vf":updated.value("emitter",Channel("sky"))})
+        refined,refine_ms=timed(lambda:run.advance(Budget(rays=args.budget),
+             options=replace(options,accuracy=replace(options.accuracy,max_replicates=2*iterations))))
+        report["stationary_refinement"]={"rays_used":refined.rays_used,
+            "cumulative_rays":refined.cumulative_rays,"elapsed_ms":refine_ms,
+            "scene_revision":refined.scene_revision}
+    rows=report["measurements"]
+    report["all_accuracy_checks_passed"]=all(row["accuracy_pass"] for row in rows)
+    report["mean_updated_prepare_ms"]=float(np.mean([row["updated_prepare_total_ms"] for row in rows]))
+    report["mean_fresh_prepare_ms"]=float(np.mean([row["fresh_bvh_prepare_ms"] for row in rows]))
+    print(json.dumps(report,indent=2,default=dict))
+    if args.json:
+        args.json.parent.mkdir(parents=True,exist_ok=True)
+        args.json.write_text(json.dumps(report,indent=2,default=dict)+"\n",encoding="utf-8")
     if not report["all_accuracy_checks_passed"]:
-        raise SystemExit("Updated/fresh solve comparison exceeded tolerance or ray budgets differed.")
+        raise SystemExit("Updated/fresh mismatch")
 
 
 if __name__ == "__main__":

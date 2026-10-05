@@ -1,0 +1,94 @@
+"""Immutable, shared controls for every estimator and output."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+import math
+import numbers
+
+
+def _integer(name, value, minimum=1):
+    if isinstance(value, bool) or not isinstance(value, numbers.Integral) or value < minimum:
+        raise ValueError(f"{name} must be an integer >= {minimum}")
+
+
+@dataclass(frozen=True)
+class Sampling:
+    density: int = 16
+    rays_per_cell: int = 128
+    seed: int = 1
+    mode: str = "fair"
+    flip_faces: bool = False
+    strategy: str = "cosine"
+    sequence: str = "shifted_halton"
+    pair_samples: int = 8192
+
+    def __post_init__(self):
+        for name in ("density", "rays_per_cell", "pair_samples"):
+            _integer(name, getattr(self, name))
+        _integer("seed", self.seed, 0)
+        if self.mode not in ("fair", "adaptive"):
+            raise ValueError("mode must be fair or adaptive")
+        if self.strategy not in ("cosine", "area_pair"):
+            raise ValueError("strategy must be cosine or area_pair")
+        if self.sequence not in ("shifted_halton", "random"):
+            raise ValueError("sequence must be shifted_halton or random")
+        if self.strategy == "cosine" and self.sequence != "shifted_halton":
+            raise ValueError("cosine sampling requires shifted_halton")
+        if not isinstance(self.flip_faces, bool):
+            raise ValueError("flip_faces must be a bool")
+
+
+@dataclass(frozen=True)
+class Accuracy:
+    max_replicates: int = 100
+    tolerance: float = 1e-4
+    mode: str = "stderr"
+    min_replicates: int = 5
+    check_interval: int = 1
+    min_rays: int = 0
+
+    def __post_init__(self):
+        for name in ("max_replicates", "min_replicates", "check_interval"):
+            _integer(name, getattr(self, name))
+        _integer("min_rays", self.min_rays, 0)
+        if not math.isfinite(self.tolerance) or self.tolerance < 0:
+            raise ValueError("tolerance must be finite and nonnegative")
+        if self.mode not in ("stderr", "delta"):
+            raise ValueError("accuracy mode must be stderr or delta")
+
+
+@dataclass(frozen=True)
+class Postprocessing:
+    reciprocity: str = "none"
+
+    def __post_init__(self):
+        if self.reciprocity not in ("none", "shortcut", "bidirectional", "rowsum"):
+            raise ValueError("reciprocity must be none, shortcut, bidirectional, or rowsum")
+
+
+@dataclass(frozen=True)
+class SolveOptions:
+    sampling: Sampling = field(default_factory=Sampling)
+    accuracy: Accuracy = field(default_factory=Accuracy)
+    postprocessing: Postprocessing = field(default_factory=Postprocessing)
+    batch_size: int = 65536
+
+    def __post_init__(self):
+        for name, cls in (("sampling", Sampling), ("accuracy", Accuracy),
+                          ("postprocessing", Postprocessing)):
+            if not isinstance(getattr(self, name), cls):
+                raise TypeError(f"{name} must be a {cls.__name__}")
+        _integer("batch_size", self.batch_size)
+
+
+@dataclass(frozen=True)
+class Budget:
+    """Additional rays and a soft deadline, checked between bounded chunks."""
+    rays: int | None = None
+    time_ms: float | None = None
+
+    def __post_init__(self):
+        if self.rays is not None:
+            _integer("rays", self.rays, 0)
+        if self.time_ms is not None and (not math.isfinite(self.time_ms) or self.time_ms < 0):
+            raise ValueError("time_ms must be finite and nonnegative")

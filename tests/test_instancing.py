@@ -10,7 +10,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from raystrack import PreparedSolver, MatrixParams, SkyParams, view_factor_matrix, view_factor_outside_workflow
+from tests.v2_cases import MatrixCase, SkyCase, matrix_case, outside_case
+from raystrack.utils.prepared import PreparedSolver
 from raystrack.utils.cpu_trace import trace_cpu_combined, trace_cpu_instanced_combined
 
 
@@ -195,17 +196,17 @@ class InstancingTests(unittest.TestCase):
     def test_moving_blocker_stationary_rows_and_sky_match_fresh_reference(self):
         prepared = PreparedSolver([square("emitter"), square("blocker", .5, 3),
                                    square("receiver", 2, 1, True)], acceleration="instanced")
-        params = MatrixParams(samples=2, rays=8, min_iters=2, max_iters=2,
+        params = MatrixCase(samples=2, rays=8, min_iters=2, max_iters=2,
                               seed=3, device="cpu", bvh="builtin", reciprocity=False)
-        sky = SkyParams(samples=2, rays=8, min_iters=2, max_iters=2,
+        sky = SkyCase(samples=2, rays=8, min_iters=2, max_iters=2,
                         seed=3, device="cpu", bvh="builtin")
-        with patch("raystrack.main._log"):
-            blocked = view_factor_matrix(prepared.meshes, params, prepared=prepared)
+        with patch("tests.v2_cases._log"):
+            blocked = matrix_case(prepared.meshes, params, prepared=prepared)
             self.assertEqual(blocked["emitter"].get("receiver_front", 0), 0)
             prepared.update_transform("blocker", transform(x=10))
-            actual = view_factor_outside_workflow(prepared.meshes, matrix_params=params,
+            actual = outside_case(prepared.meshes, matrix_params=params,
                                                   sky_params=sky, prepared=prepared)
-            expected = view_factor_outside_workflow(prepared.meshes, matrix_params=params, sky_params=sky)
+            expected = outside_case(prepared.meshes, matrix_params=params, sky_params=sky)
         self.assertEqual(actual, expected)
         self.assertGreater(actual[0]["emitter"].get("receiver_front", 0), 0)
         emitters = prepared.get_emitters(samples=2, rays=8, flip_faces=False)
@@ -216,7 +217,7 @@ class InstancingTests(unittest.TestCase):
             from types import SimpleNamespace
             import numpy as np
             from numba import cuda
-            from raystrack import PreparedSolver
+            from raystrack.utils.prepared import PreparedSolver
             from raystrack.utils.cuda_trace import kernel_trace_instanced_combined
             cuda.get_current_device = lambda: SimpleNamespace(id=0)
             v = np.array([[-1,-1,0], [1,-1,0], [1,1,0], [-1,1,0]], np.float32)
