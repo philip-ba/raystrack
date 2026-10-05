@@ -1,0 +1,90 @@
+{
+  "phase": "passed",
+  "rhino": "8.35.26251.13001",
+  "components": [
+    "RS Accuracy",
+    "RS Inspect",
+    "RS Instance",
+    "RS Load",
+    "RS Options",
+    "RS Query",
+    "RS Result Table",
+    "RS Result Value",
+    "RS Runtime",
+    "RS Sampling",
+    "RS Save",
+    "RS Scene",
+    "RS Solve",
+    "RS Surface"
+  ],
+  "checks": [
+    "14 installed components have unique IDs, 24px icons and port descriptions",
+    "Instance shares its prototype mesh and previews the rigidly transformed upper plate",
+    "Facing plates match analytic0.1998248957 within0.003",
+    "Save/Load preserves v2 result values and ray count",
+    "UI timer ticks and live ray/progress outputs update during a background solve",
+    "Cancel stops the active solve and preserves partial output",
+    "Queued Runtime check allows live Status/Cancel IPC and completes after cancellation",
+    "Removing this document terminates its owned worker",
+    "Saved true Run triggers are disarmed when the definition is reopened"
+  ],
+  "icons_and_tooltips": true,
+  "ribbon_icon": true,
+  "instance_transform": true,
+  "instance_preview_bounds": "0,0,1 - 1,1,1",
+  "active_heartbeats": 25,
+  "live_ray_counts": [
+    393216,
+    4096,
+    749568,
+    1667072
+  ],
+  "result_rays": 393216,
+  "analytic_value": 0.1998248957,
+  "pair_value": 0.199676513672,
+  "analytic_absolute_error": 0.00014838202799999367,
+  "save_load_preserved": true,
+  "cancelled_partial": true,
+  "cancelled_rays": 3497984,
+  "runtime_multiplexing": true,
+  "runtime_devices": {
+    "cuda": {
+      "available": false
+    },
+    "cpu": {
+      "available": true
+    },
+    "taichi": {
+      "architectures": [
+        "vulkan"
+      ],
+      "runtime_arch": null,
+      "adapter": null,
+      "installed": true,
+      "version": [
+        1,
+        7,
+        4
+      ],
+      "available": true
+    }
+  },
+  "document_worker_stopped": true,
+  "reopen_disarmed": true,
+  "validation_date": "2026-10-05",
+  "grasshopper_version": "2.0.0-dev.2",
+  "python_version": "3.12.10",
+  "python_package_version": "1.0.2",
+  "v2_core_commit": "576d5a6",
+  "performance_comparison": "skipped: concurrent user simulations",
+  "physics_case": "Facing unit squares one unit apart, B is a rigidly transformed instance of A",
+  "execution_device": "cpu",
+  "portable_gpu_validation": "Real AMD Vulkan: bundled runtime exact 19+45=64 resumed prefixes and external worker solve",
+  "example": "examples/grasshopper/facing-plates.gh",
+  "source_sha256": {
+    "grasshopper/Bridge.cs": "a46202264a2cf4caa249e95346643a43855ed384ab885843047dfdf80d5605d4",
+    "grasshopper/Components.cs": "9a3b098547e177a22e2ccd99276479b08abe9f441719d55d9e99ebd689619406",
+    "src/raystrack/integrations/grasshopper/worker.py": "26b0200da6f58d701f4055b700e2653d04046b368581b8a77627464d647a1635",
+    "src/raystrack/integrations/grasshopper/serialization.py": "1d8d4a94196fd68dd72135e78b1231d2b4978b55f4e85118e1f094675ef3a6aa"
+  }
+}

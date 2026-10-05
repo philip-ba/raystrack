@@ -19,8 +19,15 @@ from .snapshot import snapshot
 
 
 class Solver:
+    """Own reusable acceleration and backend resources for one mutable Scene.
+
+    Use as a context manager to close resources. All query shapes delegate to
+    the same resumable Run machinery; selection does not remove occluders.
+    """
+
     def __init__(self, scene, *, device="auto", acceleration="flat", bvh="auto",
                  auto_tune=True, cuda_async=True, gpu_raygen=True, tune_budget_ms=250.):
+        """Bind a Scene and validate backend, acceleration and tuning settings."""
         if not isinstance(scene, Scene):
             raise TypeError("scene must be a Scene")
         if acceleration not in ("flat", "instanced"):
@@ -47,36 +54,50 @@ class Solver:
         self._closed = False
         scene._subscribe(self._geometry_changed)
 
+    def __repr__(self):
+        """Describe bound geometry and execution settings without its buffers."""
+        return (f"Solver(surfaces={len(self.scene)}, revision={self.scene.revision}, "
+                f"device={self.device!r}, acceleration={self.acceleration!r}, "
+                f"bvh={self.bvh!r}, closed={self._closed})")
+
     @property
     def scene(self):
+        """Return the scene whose revisions invalidate incompatible runs."""
         return self._scene
 
     @property
     def device(self):
+        """Return the requested backend policy, such as CPU, CUDA or auto."""
         return self._device
 
     @property
     def acceleration(self):
+        """Return the flat or instanced acceleration strategy."""
         return self._acceleration
 
     @property
     def bvh(self):
+        """Return the bounding-volume acceleration selection policy."""
         return self._bvh
 
     @property
     def auto_tune(self):
+        """Return whether unrestricted solves may calibrate backend selection."""
         return self._auto_tune
 
     @property
     def cuda_async(self):
+        """Return whether CUDA tracing may use asynchronous execution buffers."""
         return self._cuda_async
 
     @property
     def gpu_raygen(self):
+        """Return whether supported GPU backends generate rays on the device."""
         return self._gpu_raygen
 
     @property
     def tune_budget_ms(self):
+        """Return the soft calibration time allowance in milliseconds."""
         return self._tune_budget_ms
 
     def _geometry_changed(self):
@@ -133,6 +154,7 @@ class Solver:
                 raise ValueError("Reciprocity requires complete receiver sides")
 
     def start(self, query, options=None):
+        """Create a validated Run without tracing or initializing a GPU."""
         self._check_open()
         options = SolveOptions() if options is None else options
         with self.scene.lock, self._runs_lock:
@@ -143,11 +165,17 @@ class Solver:
             return run
 
     def solve(self, query, options=None, budget=None, *, progress=None):
+        """Start a Run and advance it to completion or the supplied budget.
+
+        The optional callback receives additional rays after each traced chunk.
+        A bounded solve returns a partial Result that may remain unconverged.
+        """
         run = self.start(query, options)
         return run._advance(Budget() if budget is None else budget, progress=progress,
                             allow_calibration=budget is None and progress is None)
 
     def warmup(self, query=None, options=None, **kwargs):
+        """Explicitly prepare and calibrate cosine tracing for this scene."""
         self._check_open()
         query = Query.matrix() if query is None else query
         options = SolveOptions() if options is None else options
@@ -160,6 +188,7 @@ class Solver:
                           include_sky=cfg.include_sky, discrete=cfg.discrete, **kwargs)
 
     def close(self):
+        """Cancel registered runs and close owned execution resources once."""
         # Set events before waiting for an executing chunk/solver lock.
         with self._runs_lock:
             for run in tuple(self._runs):
@@ -182,15 +211,24 @@ class Solver:
         return run.advance(budget, options=options, progress=progress)
 
     def __enter__(self):
+        """Enter an open solver context with deterministic resource cleanup."""
         self._check_open()
         return self
 
     def __exit__(self, *args):
+        """Close the solver when its context ends, including on an exception."""
         self.close()
 
 
 class Run:
+    """Own a cancellable, resumable seeded sample prefix for one query.
+
+    Each advance budget means additional work. Geometry revisions invalidate
+    the run; changing sampling requires a new run, while accuracy can refine it.
+    """
+
     def __init__(self, solver, query, options):
+        """Capture the validated query and its current scene revision."""
         self._solver, self._query, self._options = solver, query, options
         self.scene_revision = solver.scene.revision
         self._surface_ids = solver.scene.surface_ids
@@ -201,31 +239,48 @@ class Run:
         self._closed = False
         self._result = None
 
+    def __repr__(self):
+        """Describe query and cumulative progress without accumulation arrays."""
+        return (f"Run(query={self.query!r}, scene_revision={self.scene_revision}, "
+                f"cumulative_rays={self.cumulative_rays}, status={self.status!r}, "
+                f"closed={self._closed})")
+
     @property
     def result(self):
+        """Return the latest immutable snapshot, or ``None`` before advancing."""
         return self._result
 
     @property
     def solver(self):
+        """Return the reusable Solver that owns this run's execution resources."""
         return self._solver
 
     @property
     def query(self):
+        """Return the immutable output selection captured at run creation."""
         return self._query
 
     @property
     def options(self):
+        """Return the current sampling, accuracy and postprocessing settings."""
         return self._options
 
     @property
     def cumulative_rays(self):
+        """Return all traced rays retained in this run's exact sample prefix."""
         return self._accumulator.cumulative_rays
 
     @property
     def status(self):
+        """Return sampling, completion, cancellation or invalidation state."""
         return "invalidated" if self._invalidated.is_set() else "cancelled" if self._cancelled.is_set() else self._accumulator.status
 
     def advance(self, budget=None, *, options=None, progress=None):
+        """Trace additional work and return a detached immutable Result.
+
+        ``options`` may adjust accuracy, batching or explicit postprocessing;
+        sampling changes require a new Run. The callback receives chunk rays.
+        """
         return self._advance(Budget() if budget is None else budget, options=options, progress=progress)
 
     def _advance(self, budget, *, options=None, progress=None, allow_calibration=False):
@@ -262,6 +317,7 @@ class Run:
             return self._result
 
     def submit(self, budget=None, *, options=None, progress=None):
+        """Queue an advance on the solver's single worker and return a Future."""
         with self.solver._submit_lock:
             self.solver._check_open()
             if self._closed:
@@ -271,16 +327,20 @@ class Run:
             return self.solver._executor.submit(self.solver._execute, self, budget, options, progress)
 
     def cancel(self):
+        """Request cooperative cancellation while retaining the sample prefix."""
         self._cancelled.set()
 
     def close(self):
+        """Cancel this run and reject subsequent asynchronous submissions."""
         self.cancel()
         self._closed = True
 
     def __enter__(self):
+        """Enter an open run context with cancellation when the context ends."""
         if self._closed:
             raise RuntimeError("Run is closed")
         return self
 
     def __exit__(self, *args):
+        """Close this run when its context ends."""
         self.close()

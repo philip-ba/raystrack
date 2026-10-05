@@ -1,0 +1,15 @@
+name: raystrack
+version: 2.0.0-dev.3
+authors:
+  - Philip Balizki
+description: >
+  Raystrack scene, query and asynchronous view-factor solvers for Rhino 8
+  Grasshopper, with a bundled Windows Python runtime and portable GPU support.
+url: https://github.com/philip-ba/raystrack
+keywords:
+  - grasshopper
+  - rhino8
+  - view-factors
+  - radiation
+  - gpu
+icon: icon.png

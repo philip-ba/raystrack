@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from reprlib import repr as short_repr
 from threading import RLock
 from types import MappingProxyType
 from typing import Callable, Iterable, Mapping, Optional, Tuple
@@ -27,6 +28,7 @@ class Scene:
     """
 
     def __init__(self, surfaces: Iterable[Surface] = (), *, revision: int = 0):
+        """Own an ordered sequence of immutable instances at a known revision."""
         if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
             raise ValueError("revision must be a nonnegative integer")
         self.lock = RLock()
@@ -77,21 +79,35 @@ class Scene:
 
     @property
     def surfaces(self) -> Tuple[Surface, ...]:
+        """Return the current immutable, ordered instance snapshot."""
         return self._state.surfaces
 
     @property
     def surface_ids(self) -> Tuple[str, ...]:
+        """Return stable IDs in the order used by queries and result rows."""
         return tuple(self._state.by_id)
 
     @property
     def revision(self) -> int:
+        """Return the geometry revision; display label edits do not increase it."""
         return self._state.revision
 
     def __getitem__(self, surface_id: str) -> Surface:
+        """Find an immutable instance by its stable surface ID."""
         return self._state.by_id[surface_id]
 
     def __len__(self) -> int:
+        """Return the number of scene instances, including all occluders."""
         return len(self._state.surfaces)
+
+    def __repr__(self):
+        """Summarize instance and geometry counts without expanding meshes."""
+        state = self._state
+        unique_meshes = {id(surface.mesh) for surface in state.surfaces}
+        triangles = sum(len(surface.mesh.faces) for surface in state.surfaces)
+        return (f"Scene(surfaces={len(state.surfaces)}, meshes={len(unique_meshes)}, "
+                f"triangles={triangles}, revision={state.revision}, "
+                f"ids={short_repr(tuple(state.by_id))})")
 
     def world_meshes(self):
         """Return ordered (ID, immutable world vertices, immutable faces)."""

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from reprlib import repr as short_repr
 from types import MappingProxyType
 from typing import Mapping
 import numpy as np
@@ -10,6 +11,7 @@ from .options import _integer
 
 
 def freeze(value):
+    """Recursively detach mappings and arrays into immutable result metadata."""
     if isinstance(value, Mapping):
         return MappingProxyType({key: freeze(item) for key, item in value.items()})
     if isinstance(value, (tuple, list)):
@@ -20,6 +22,7 @@ def freeze(value):
 
 
 def readonly(value, dtype):
+    """Copy an array into a bytes-backed buffer that cannot become writable."""
     array = np.asarray(value, dtype=dtype)
     # An immutable backing buffer prevents callers from re-enabling writes.
     return np.frombuffer(array.tobytes(), dtype=array.dtype).reshape(array.shape)
@@ -27,12 +30,18 @@ def readonly(value, dtype):
 
 @dataclass(frozen=True)
 class Channel:
+    """Identify a surface side, sky patch, escape or unrequested-hit output.
+
+    Surface IDs and sides are separate fields. A sky ``patch=None`` identifies
+    merged sky; an integer identifies a zero-based Tregenza patch.
+    """
     kind: str
     surface_id: str | None = None
     side: str | None = None
     patch: int | None = None
 
     def __post_init__(self):
+        """Validate that structured fields match the selected channel kind."""
         if self.kind not in ("surface", "sky", "rest", "unrequested"):
             raise ValueError("Unknown result channel kind")
         if self.kind == "surface":
@@ -46,15 +55,26 @@ class Channel:
             if self.kind != "sky" or isinstance(self.patch, bool) or not isinstance(self.patch, (int, np.integer)) or not 0 <= self.patch < 145:
                 raise ValueError("Sky patch must be a zero-based index in 0..144")
 
+    def __repr__(self):
+        """Describe a structured output without unbounded display identifiers."""
+        if self.kind == "surface":
+            return (f"Channel(kind='surface', surface_id={short_repr(self.surface_id)}, "
+                    f"side={self.side!r})")
+        if self.kind == "sky":
+            return f"Channel(kind='sky', patch={self.patch})"
+        return f"Channel(kind={self.kind!r})"
+
 
 @dataclass(frozen=True)
 class SparseValues:
+    """Immutable indexed estimates with optional, NaN-marked sampling errors."""
     row_indices: np.ndarray
     channel_indices: np.ndarray
     estimates: np.ndarray
     errors: np.ndarray
 
     def __post_init__(self):
+        """Validate unique nonnegative indices and matching immutable arrays."""
         for name, dtype in (("row_indices", np.int64), ("channel_indices", np.int64),
                             ("estimates", np.float64), ("errors", np.float64)):
             raw = np.asarray(getattr(self, name))
@@ -76,9 +96,19 @@ class SparseValues:
         if len(set(pairs)) != size:
             raise ValueError("Sparse entries must be unique")
 
+    def __repr__(self):
+        """Describe sparse storage without printing estimates or index arrays."""
+        return (f"SparseValues(entries={len(self.estimates)}, "
+                f"known_errors={int(np.count_nonzero(np.isfinite(self.errors)))})")
+
 
 @dataclass(frozen=True)
 class Result:
+    """An immutable estimate snapshot with explicit coverage and provenance.
+
+    Coverage is one per sender: ``1`` sampled, ``0`` uncomputed, or ``-1``
+    unknown imported coverage. Sampling errors and counts may also be unknown.
+    """
     sender_ids: tuple[str, ...]
     channels: tuple[Channel, ...]
     data: SparseValues
@@ -94,6 +124,7 @@ class Result:
     provenance: tuple[Mapping, ...] = ()
 
     def __post_init__(self):
+        """Validate dimensions and freeze all values and execution metadata."""
         _integer("scene_revision", self.scene_revision, 0)
         for name in ("rays_used", "cumulative_rays"):
             if getattr(self, name) is not None:
@@ -129,7 +160,18 @@ class Result:
         object.__setattr__(self, "_channel_index", {c: i for i, c in enumerate(self.channels)})
         object.__setattr__(self, "_entries", {(int(r), int(c)): i for i, (r, c) in enumerate(zip(self.data.row_indices, self.data.channel_indices))})
 
+    def __repr__(self):
+        """Summarize outputs, coverage and progress without expanding data."""
+        return (f"Result(senders={len(self.sender_ids)}, channels={len(self.channels)}, "
+                f"entries={len(self.data.estimates)}, sampled={int(np.count_nonzero(self.coverage == 1))}, "
+                f"uncomputed={int(np.count_nonzero(self.coverage == 0))}, "
+                f"unknown={int(np.count_nonzero(self.coverage == -1))}, "
+                f"rays_used={self.rays_used}, cumulative_rays={self.cumulative_rays}, "
+                f"status={short_repr(self.status)}, "
+                f"converged={self.converged})")
+
     def value(self, sender, channel):
+        """Return an estimate, sampled zero, or ``None`` for an unknown entry."""
         row, col = self._sender_index[sender], self._channel_index[channel]
         entry = self._entries.get((row, col))
         if entry is not None:
@@ -137,6 +179,7 @@ class Result:
         return 0.0 if self.coverage[row] == 1 else None
 
     def error(self, sender, channel):
+        """Return a sampling standard error or ``None`` when unavailable."""
         row, col = self._sender_index[sender], self._channel_index[channel]
         entry = self._entries.get((row, col))
         if entry is not None:
@@ -150,9 +193,11 @@ class Result:
         return 0.0 if est.get("replicates", 0) >= 2 and not est.get("pending_rays", 0) else None
 
     def row(self, sender):
+        """Return an immutable channel-to-estimate mapping for one sender."""
         return MappingProxyType({c: self.value(sender, c) for c in self.channels})
 
     def dense(self, *, unknown=np.nan):
+        """Return a detached dense array, retaining unknown and sampled zero."""
         values = np.full((len(self.sender_ids), len(self.channels)), unknown, np.float64)
         values[self.coverage == 1] = 0.0
         values[self.data.row_indices, self.data.channel_indices] = self.data.estimates

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from reprlib import repr as short_repr
 from typing import Optional, Tuple
 
 import numpy as np
@@ -13,6 +14,7 @@ def _immutable_array(array: np.ndarray) -> np.ndarray:
 
 
 def _vertices(vertices) -> np.ndarray:
+    """Validate and copy finite vertex coordinates into immutable float32 data."""
     raw = np.asarray(vertices)
     if raw.dtype.kind == "c":
         raise ValueError("vertices must contain real coordinates")
@@ -26,6 +28,7 @@ def _vertices(vertices) -> np.ndarray:
 
 
 def _faces(faces, vertex_count: int) -> np.ndarray:
+    """Validate triangle indices and copy them into immutable int32 data."""
     raw = np.asarray(faces)
     if raw.ndim != 2 or raw.shape[1] != 3:
         raise ValueError("faces must have shape (n, 3)")
@@ -59,6 +62,7 @@ def rigid_transform(transform=None) -> np.ndarray:
 
 
 def _check_world_bounds(mesh: Mesh, transform: np.ndarray) -> None:
+    """Reject instance bounds that cannot be represented by tracing kernels."""
     if not len(mesh.vertices):
         return
     center, extent = mesh._bounds
@@ -85,6 +89,7 @@ class Mesh:
     _bounds: Tuple[np.ndarray, np.ndarray] = field(repr=False)
 
     def __init__(self, vertices, faces):
+        """Copy ``(n, 3)`` vertices and integer triangles into owned geometry."""
         owned_vertices = _vertices(vertices)
         owned_faces = _faces(faces, len(owned_vertices))
         object.__setattr__(self, "vertices", owned_vertices)
@@ -96,6 +101,10 @@ class Mesh:
         else:
             center = extent = np.zeros(3, dtype=np.float64)
         object.__setattr__(self, "_bounds", (_immutable_array(center), _immutable_array(extent)))
+
+    def __repr__(self):
+        """Describe geometry size without printing vertex or face arrays."""
+        return f"Mesh(vertices={len(self.vertices)}, triangles={len(self.faces)})"
 
 
 @dataclass(frozen=True, eq=False)
@@ -112,6 +121,7 @@ class Surface:
     transform: Optional[np.ndarray] = None
 
     def __post_init__(self):
+        """Validate the stable ID, label, mesh and proper rigid transform."""
         if not isinstance(self.surface_id, str) or not self.surface_id:
             raise ValueError("surface_id must be a nonempty string")
         if not isinstance(self.mesh, Mesh):
@@ -123,6 +133,17 @@ class Surface:
         _check_world_bounds(self.mesh, transform)
         object.__setattr__(self, "label", label)
         object.__setattr__(self, "transform", transform)
+
+    def __repr__(self):
+        """Describe the instance and placement without expanding its arrays."""
+        if np.array_equal(self.transform, np.eye(4)):
+            placement = "identity"
+        else:
+            translation = tuple(float(value) for value in self.transform[:3, 3])
+            rotated = not np.array_equal(self.transform[:3, :3], np.eye(3))
+            placement = f"rigid(translation={translation}, rotated={rotated})"
+        return (f"Surface(id={short_repr(self.surface_id)}, label={short_repr(self.label)}, "
+                f"mesh={self.mesh!r}, transform={placement})")
 
     def world_vertices(self) -> np.ndarray:
         """Materialize tracing coordinates without modifying local geometry."""

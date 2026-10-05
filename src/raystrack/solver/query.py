@@ -1,9 +1,11 @@
 """Queries select output channels; scene geometry always remains intact."""
 from __future__ import annotations
 from dataclasses import dataclass
+from reprlib import repr as short_repr
 
 
 def _ids(value, role):
+    """Normalize optional selections into unique, stable surface ID tuples."""
     if value is None:
         return None
     if isinstance(value, str):
@@ -16,6 +18,11 @@ def _ids(value, role):
 
 @dataclass(frozen=True)
 class Query:
+    """Select sender rows and scene/sky outputs while retaining every occluder.
+
+    ``None`` sender or receiver selections mean all scene surfaces. IDs are
+    stable Scene identifiers; display labels never select geometry.
+    """
     senders: tuple[str, ...] | None = None
     receivers: tuple[str, ...] | None = None
     scene: bool = True
@@ -23,6 +30,7 @@ class Query:
     receiver_sides: tuple[str, ...] = ("front", "back")
 
     def __post_init__(self):
+        """Validate selections, receiver sides and the requested output kinds."""
         object.__setattr__(self, "senders", _ids(self.senders, "senders"))
         object.__setattr__(self, "receivers", _ids(self.receivers, "receivers"))
         sides = tuple(self.receiver_sides)
@@ -36,23 +44,35 @@ class Query:
         if not self.scene and self.sky_mode is None:
             raise ValueError("A query must request scene or sky outputs")
 
+    def __repr__(self):
+        """Describe selected outputs using bounded sender and receiver lists."""
+        senders = "all" if self.senders is None else short_repr(self.senders)
+        receivers = "all" if self.receivers is None else short_repr(self.receivers)
+        return (f"Query(senders={senders}, receivers={receivers}, scene={self.scene}, "
+                f"sky={self.sky_mode!r}, sides={self.receiver_sides!r})")
+
     @classmethod
     def matrix(cls, senders=None, receivers=None, *, sky=None, receiver_sides=("front", "back")):
+        """Request selected scene rows, optionally sharing their sky tracing."""
         return cls(senders, receivers, True, sky, receiver_sides)
 
     @classmethod
     def row(cls, sender, receivers=None, *, sky=None, receiver_sides=("front", "back")):
+        """Request one sender row without removing unselected scene occluders."""
         return cls.matrix((sender,), receivers, sky=sky, receiver_sides=receiver_sides)
 
     @classmethod
     def pair(cls, sender, receiver, *, receiver_sides=("front", "back")):
+        """Request one scene pair, retaining hits on unrequested surfaces."""
         return cls.matrix((sender,), (receiver,), receiver_sides=receiver_sides)
 
     @classmethod
     def sky(cls, senders=None, *, discrete=False):
+        """Request merged sky or 145 Tregenza patches for selected senders."""
         return cls(senders, None, False, "tregenza145" if discrete else "merged")
 
     def resolve(self, surface_ids):
+        """Resolve all-surface selections and reject IDs absent from the scene."""
         ids = tuple(surface_ids)
         senders = ids if self.senders is None else self.senders
         receivers = ids if self.receivers is None else self.receivers

@@ -8,6 +8,10 @@ around `Scene`, `Solver`, `Query`, `Run`, and immutable `Result` snapshots.
 Package metadata remains `1.0.2`; this API change has not been published as a
 new release. See the [migration guide](docs/v2-migration.md).
 
+The [Grasshopper integration](docs/grasshopper.md) lives in this repository too.
+It provides compiled **RS** components, live background solves, a Raystrack
+ribbon icon, and a bundled Python runtime through Yak or a standalone ZIP.
+
 ## Install from this checkout
 
 ```sh
