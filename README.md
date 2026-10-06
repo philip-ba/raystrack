@@ -1,18 +1,31 @@
 # Raystrack
 
-<img src="raystrack_icon.svg" alt="Raystrack" width="160">
+<img src="https://raw.githubusercontent.com/philip-ba/raystrack/main/raystrack_icon.svg" alt="Raystrack" width="160">
 
 Raystrack computes radiative view factors between triangulated surfaces using
-quasi Monte Carlo ray tracing. The current source checkout has a v2 API built
+quasi Monte Carlo ray tracing. Version 2.0.0 has a unified API built
 around `Scene`, `Solver`, `Query`, `Run`, and immutable `Result` snapshots.
-Package metadata remains `1.0.2`; this API change has not been published as a
-new release. See the [migration guide](docs/v2-migration.md).
+The v1 calculation functions have been replaced. See the
+[migration guide](https://github.com/philip-ba/raystrack/blob/main/docs/v2-migration.md) before upgrading an existing script.
 
-The [Grasshopper integration](docs/grasshopper.md) lives in this repository too.
+The [Grasshopper integration](https://github.com/philip-ba/raystrack/blob/main/docs/grasshopper.md) lives in this repository too.
 It provides compiled **RS** components, live background solves, a Raystrack
 ribbon icon, and a bundled Python runtime through Yak or a standalone ZIP.
 
-## Install from this checkout
+## Installation
+
+```sh
+pip install "raystrack==2.0.0"
+pip install "raystrack[portable-gpu]==2.0.0"  # optional Taichi Vulkan/Metal
+pip install "raystrack[cuda]==2.0.0"          # optional NVIDIA CUDA
+```
+
+In Rhino 8.35 or later on Windows, open **PackageManager**, search for
+**raystrack**, and install version **2.0.0**. Restart Rhino, then open
+Grasshopper's **Raystrack** tab. The Yak package includes its Python runtime.
+The [Grasshopper guide](https://github.com/philip-ba/raystrack/blob/main/docs/grasshopper.md) covers components and examples.
+
+To install from a source checkout:
 
 ```sh
 pip install .
@@ -105,6 +118,14 @@ sampling weights uniformly sampled surface pairs by their cosine and
 inverse-distance factors and checks visibility against all occluders. It supports
 CPU only; unsupported GPU, sky, or reciprocity combinations raise explicitly.
 `sequence="random"` is also available for this estimator.
+
+Meshes can see and occlude themselves: other faces of the emitting surface
+participate in tracing, and `Query.pair("box", "box")` selects its self view
+factor. Matrix/row queries include the same channels. For a closed box with
+outward mesh normals, use `Sampling(flip_faces=True)` to emit into its interior;
+the self factor is 1 on `Channel("surface", "box", "back")`, with zero escape.
+With inward normals, use the front channel and leave `flip_faces=False`.
+Receiver side labels always follow the stored mesh winding.
 
 Reciprocity is opt-in through `Postprocessing("bidirectional")` or
 `Postprocessing("shortcut")`, both requiring complete sender/receiver tables.
@@ -236,5 +257,5 @@ closed-form comparisons across CPU/Vulkan and flat/instanced traversal. The
 [validation guide](validation/readme.md) describes larger analytical checks,
 optional benchmarks and their limits. Performance timing validation was skipped
 at the user's request because background simulations made measurements
-unreliable; this change makes no speedup claim. The [migration guide](docs/v2-migration.md)
+unreliable; this change makes no speedup claim. The [migration guide](https://github.com/philip-ba/raystrack/blob/main/docs/v2-migration.md)
 shows v1-to-v2 replacements.

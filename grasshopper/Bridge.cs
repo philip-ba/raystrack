@@ -80,7 +80,7 @@ namespace Raystrack.Grasshopper
         /// <summary>Source repository for package help and issue reports.</summary>
         public override string AuthorContact { get { return "https://github.com/philip-ba/raystrack"; } }
         /// <summary>Development package version, matching the Yak manifest.</summary>
-        public override string Version { get { return "2.0.0-dev.3"; } }
+        public override string Version { get { return "2.0.0"; } }
     }
 
     /// <summary>Register Raystrack's ribbon category, original icon and compact category name.</summary>
@@ -168,20 +168,7 @@ namespace Raystrack.Grasshopper
             if ((string)Value["kind"] == "surface") surfaces = new[] { Value };
             foreach (var surface in surfaces)
             {
-                var geometry = surface["mesh"] as JObject;
-                if (geometry == null) continue;
-                var mesh = new Mesh();
-                foreach (var v in geometry["vertices"].Children<JArray>()) mesh.Vertices.Add((double)v[0], (double)v[1], (double)v[2]);
-                foreach (var f in geometry["faces"].Children<JArray>()) mesh.Faces.AddFace((int)f[0], (int)f[1], (int)f[2]);
-                var transform = surface["transform"] as JArray;
-                if (transform != null)
-                {
-                    var t = Transform.Identity;
-                    for (int r = 0; r < 4; r++) for (int c = 0; c < 4; c++) t[r, c] = (double)transform[r][c];
-                    mesh.Transform(t);
-                }
-                mesh.Normals.ComputeNormals();
-                meshes.Add(mesh);
+                meshes.Add(SnapshotGeometry.SurfaceMesh(surface));
             }
             return meshes;
         }

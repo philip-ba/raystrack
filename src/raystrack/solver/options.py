@@ -18,6 +18,9 @@ class Sampling:
 
     Cosine tracing uses ``density`` and ``rays_per_cell``. CPU area-pair
     estimation uses ``pair_samples`` and its selected random sequence.
+    Other faces of the emitting mesh participate in visibility and self view
+    factors. ``flip_faces`` reverses emission only; receiver sides keep their
+    original mesh winding (an outward box flipped inward receives on its back).
     """
     density: int = 16
     rays_per_cell: int = 128

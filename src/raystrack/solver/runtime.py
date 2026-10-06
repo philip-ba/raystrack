@@ -140,8 +140,8 @@ class Solver:
         if options.sampling.strategy == "area_pair":
             if self.device not in ("auto", "cpu"):
                 raise CapabilityError("area_pair supports CPU only")
-            if not query.scene or query.sky_mode is not None or len(senders) != 1 or len(receivers) != 1 or senders[0] == receivers[0]:
-                raise CapabilityError("area_pair requires one distinct sender/receiver pair and no sky")
+            if not query.scene or query.sky_mode is not None or len(senders) != 1 or len(receivers) != 1:
+                raise CapabilityError("area_pair requires one sender/receiver pair and no sky")
             if options.postprocessing.reciprocity != "none":
                 raise CapabilityError("area_pair does not support reciprocity postprocessing")
         mode = options.postprocessing.reciprocity

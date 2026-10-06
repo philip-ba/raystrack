@@ -1,0 +1,328 @@
+{
+  "phase": "passed",
+  "validation": "managed_and_native_geometry_contract",
+  "host_gui_opened": false,
+  "distribution_built": false,
+  "installed": false,
+  "summaries": {
+    "surface": "RS Surface 'A' (Plate A): 3 vertices, 1 triangle; transform: identity",
+    "scene": "RS Scene: 2 surfaces, 1 shared mesh, 6 vertices, 2 triangles; IDs: A, B",
+    "query": "RS Query: senders 1 [A]; receivers 1 [B]; sides front; sky tregenza145",
+    "sky": "RS Sky: tregenza145; 145 patches (Sky patch 0..144); center (1, 2, 3); radius 20; label size 0.24; labels shown; +Z up, azimuth +X toward +Y",
+    "merged_sky": "RS Sky: merged; 1 hemisphere channel (Sky); center (0, 0, 0); radius 10; label size 0.12; labels hidden; +Z up, azimuth +X toward +Y",
+    "sampling": "RS Sampling: cosine; density 3; rays/cell 64; seed 7; adaptive; flip false",
+    "accuracy": "RS Accuracy: stderr tolerance 0.005; replicates min 3, max 20; min rays 0",
+    "options": "RS Options: cosine; density 3; rays/cell 64; seed 7; adaptive; flip false; stderr tolerance 0.005; replicates min 3, max 20; min rays 0; batch 2048; reciprocity bidirectional",
+    "default_options": "RS Options: cosine; density 16; rays/cell 128; seed 1; fair; flip false; stderr tolerance 0.0001; replicates min 5, max 100; min rays 0; batch 65536; reciprocity none",
+    "result": "RS Result: max_iters; 1 sender row x 2 channels; 1 sampled, 0 uncomputed, 0 unknown; 128 cumulative rays (128 additional); convergence false",
+    "surface_channel": "RS Channel: B / front",
+    "sky_channel": "RS Channel: Sky patch 33",
+    "merged_sky_channel": "RS Channel: Sky",
+    "escape_channel": "RS Channel: Escape",
+    "unrequested_channel": "RS Channel: Unrequested hits"
+  },
+  "invalid_cases": [
+    {
+      "case": "empty",
+      "reason": "Expected an RS Surface, Scene, Sky, Query, Sampling, Accuracy, Options, Result or Channel output.",
+      "summary": "RS Data: invalid data (Expected an RS Surface, Scene, Sky, Query, Sampling, Accuracy, Options, Result or Channel output.)"
+    },
+    {
+      "case": "unknown_kind",
+      "reason": "Expected an RS Surface, Scene, Sky, Query, Sampling, Accuracy, Options, Result or Channel output.",
+      "summary": "RS Mystery: invalid data (Expected an RS Surface, Scene, Sky, Query, Sampling, Accuracy, Options, Result or Channel output.)"
+    },
+    {
+      "case": "surface_missing_geometry",
+      "reason": "Surface 'A': missing mesh; connect RS Surface.",
+      "summary": "RS Surface: invalid data (Surface 'A': missing mesh; connect RS Surface.)"
+    },
+    {
+      "case": "scene_wrong_shape",
+      "reason": "Scene Surfaces must be a list of RS Surface outputs.",
+      "summary": "RS Scene: invalid data (Scene Surfaces must be a list of RS Surface outputs.)"
+    },
+    {
+      "case": "query_bad_side",
+      "reason": "Receiver sides must select front and/or back once each.",
+      "summary": "RS Query: invalid data (Receiver sides must select front and/or back once each.)"
+    },
+    {
+      "case": "sampling_bad_density",
+      "reason": "Sampling: density must be an integer >= 1.",
+      "summary": "RS Sampling: invalid data (Sampling: density must be an integer >= 1.)"
+    },
+    {
+      "case": "accuracy_bad_limit",
+      "reason": "Accuracy: max_replicates must be an integer >= 1.",
+      "summary": "RS Accuracy: invalid data (Accuracy: max_replicates must be an integer >= 1.)"
+    },
+    {
+      "case": "options_bad_batch",
+      "reason": "batch_size must be an integer >= 1.",
+      "summary": "RS Options: invalid data (batch_size must be an integer >= 1.)"
+    },
+    {
+      "case": "result_missing_grid",
+      "reason": "Result needs senders, channels, values, errors and coverage; reconnect RS Solve or RS Load.",
+      "summary": "RS Result: invalid data (Result needs senders, channels, values, errors and coverage; reconnect RS Solve or RS Load.)"
+    },
+    {
+      "case": "channel_bad_side",
+      "reason": "Surface channel Side must be front, back or unknown.",
+      "summary": "RS Channel: invalid data (Surface channel Side must be front, back or unknown.)"
+    },
+    {
+      "case": "sky_bad_mode",
+      "reason": "mode must be merged, tregenza145.",
+      "summary": "RS Sky: invalid data (mode must be merged, tregenza145.)"
+    },
+    {
+      "case": "sky_bad_radius",
+      "reason": "Sky Radius must be finite and greater than 0.",
+      "summary": "RS Sky: invalid data (Sky Radius must be finite and greater than 0.)"
+    },
+    {
+      "case": "sky_bad_center",
+      "reason": "Sky Center needs three finite coordinates.",
+      "summary": "RS Sky: invalid data (Sky Center needs three finite coordinates.)"
+    }
+  ],
+  "icons": {
+    "raystrack_icon": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 176,
+      "light_pixels": 297,
+      "antialiased_pixels": 275
+    },
+    "RS_Accuracy": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 121,
+      "light_pixels": 371,
+      "antialiased_pixels": 203
+    },
+    "RS_Inspect": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 165,
+      "light_pixels": 273,
+      "antialiased_pixels": 302
+    },
+    "RS_Load": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 126,
+      "light_pixels": 377,
+      "antialiased_pixels": 185
+    },
+    "RS_Options": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 129,
+      "light_pixels": 356,
+      "antialiased_pixels": 209
+    },
+    "RS_Query": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 117,
+      "light_pixels": 272,
+      "antialiased_pixels": 325
+    },
+    "RS_Result_Table": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 179,
+      "light_pixels": 272,
+      "antialiased_pixels": 306
+    },
+    "RS_Result_Value": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 163,
+      "light_pixels": 277,
+      "antialiased_pixels": 305
+    },
+    "RS_Runtime": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 133,
+      "light_pixels": 331,
+      "antialiased_pixels": 236
+    },
+    "RS_Sampling": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 110,
+      "light_pixels": 377,
+      "antialiased_pixels": 196
+    },
+    "RS_Save": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 128,
+      "light_pixels": 374,
+      "antialiased_pixels": 190
+    },
+    "RS_Scene": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 98,
+      "light_pixels": 320,
+      "antialiased_pixels": 285
+    },
+    "RS_Sky": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 99,
+      "light_pixels": 298,
+      "antialiased_pixels": 294
+    },
+    "RS_Solve": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 173,
+      "light_pixels": 261,
+      "antialiased_pixels": 311
+    },
+    "RS_Surface": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 88,
+      "light_pixels": 340,
+      "antialiased_pixels": 249
+    },
+    "RS_To_Brep": {
+      "width": 24,
+      "height": 24,
+      "dpi": 96.0,
+      "ink_pixels": 105,
+      "light_pixels": 302,
+      "antialiased_pixels": 295
+    }
+  },
+  "component_help": {
+    "SurfaceComponent": "<br/><br/>Connect a Mesh or Brep to Geometry and give it an ID such as roof or wall_A. Labels are optional display names; queries use IDs. Front is defined by mesh face winding.<br/><br/>Transform accepts a native Grasshopper Transform, not a vector or a list of numbers. Connect the X (Transform) output of Move, Rotate or another rigid transform component. Feed the original Rhino mesh/Brep into Move's Geometry (G) and a motion vector such as Unit X multiplied by 5 into Motion (T): the surface moves 5 Rhino document units. Leave Transform empty for identity.<br/><br/>Connect the ORIGINAL geometry with its Transform, or connect the already moved geometry and leave Transform empty. Applying both moves it twice. Only rotation/translation is allowed here; scale or mirror geometry upstream before creating the surface. Connect Surface to RS Scene or RS To Brep.",
+    "ToBrepComponent": "<br/><br/>Connect an RS Surface or RS Scene to Data, including a Scene from RS Load. Breps contains one native triangulated Brep per surface, with the saved Transform applied once in world coordinates. IDs and Labels follow the same scene order. Use or bake Breps in Rhino. RS Surface stores triangles, so this reverses the snapshot conversion but cannot recover the original smooth, unmeshed Brep. Create repeated placements using native Move/Rotate and separate RS Surface IDs.",
+    "SkyComponent": "<br/><br/>Connect Sky to RS Query's Sky input. Mode=merged returns one hemisphere channel; tregenza145 returns patches 0..144 in solver order. Patches are native spherical Breps; Labels exactly match RS Result Table labels. Tags preview and bake each patch number directly at its patch; Label points support custom Text Tag components.<br/><br/>Center, Radius, Label size and Show labels configure the dome display only. Label size=0 scales with Radius. The solver uses +Z up, azimuth from +X towards +Y and alternating ring offsets. Patch 144 is the zenith cap. The dome has no orientation setting because rotating the display would mislabel the solver's directions. Use merged for a single sky factor or tregenza145 to inspect individual directions.",
+    "SceneComponent": "<br/><br/>Merge all RS Surface outputs into Surfaces, including geometry used only as blockers. Every ID must be unique. Connect Scene to RS Solve or RS To Brep. Use the IDs output to build queries; selecting receivers keeps the other surfaces as occluders. A Panel shows surface, vertex, triangle and shared-mesh counts.",
+    "QueryComponent": "<br/><br/>Example pair: Mode=pair, Senders=A, Receivers=B. Example row: Mode=row, Senders=A, leave Receivers empty for all. Matrix defaults to all senders/receivers. Connect RS Sky to Sky for escaped sky contributions, with all sky settings made in RS Sky. Mode=sky requires that connection and requests only sky channels; other modes can combine scene and sky channels. Front/back refer to receiver face winding. IDs are case-sensitive; use RS Scene's IDs output, not labels. Mode/Sides choices ignore capitalization and surrounding spaces.",
+    "SamplingComponent": "<br/><br/>Defaults: density 16, 128 rays/cell, seed 1, fair allocation, cosine estimator. Increase density/rays for additional spatial/angular sampling, or replicate limits in RS Accuracy for refinement. Flip reverses emitting normals while receiver labels keep their meaning. area_pair supports CPU pair queries only. Connect Sampling to RS Options. A Panel displays all relevant sampling settings.",
+    "AccuracyComponent": "<br/><br/>Defaults: stderr, tolerance 0.0001, min 5 and max 100 replicates. Tolerance=0 runs to the maximum replicate count. A partial replicate can have unknown uncertainty; this is reported as NaN rather than zero. Minimum replicates can exceed maximum when deliberately forcing a fixed workload. Connect Accuracy to RS Options.",
+    "OptionsComponent": "<br/><br/>Connect RS Sampling and RS Accuracy, or leave either empty for its documented defaults. Batch size is the maximum work per kernel chunk; smaller batches usually permit more frequent cancellation checks. Reciprocity is explicit postprocessing on completed full-scene results; rowsum additionally assumes a closed scene. Partial previews are raw estimates. Connect Options to RS Solve; a Panel also shows defaults used by empty inputs.",
+    "SolveComponent": "<br/><br/>Connect Scene; Query and Options are optional. Press a Button at Run, or change a Boolean from false to true. Input changes alone do not start work. The worker runs outside Rhino; Status, Progress, Rays and partial Result refresh automatically. Initial Python import/JIT preparation may take time before rays appear.<br/><br/>Ray budget=0 runs until convergence or the replicate limit. A positive budget means ADDITIONAL rays. A paused compatible run continues on the next false-to-true Run pulse. If scene/query/options/device changes, the next launch starts a new run. Cancel keeps the partial result and is checked between kernel chunks. Saved true triggers are disarmed: set Run false then true after reopening.<br/><br/>Use RS Runtime for device availability; cpu is a useful first test. An explicit unsupported GPU/strategy combination reports an error. Result Table/Value read live snapshots; succeeded describes execution completion, so also inspect Result convergence and coverage.",
+    "ResultTableComponent": "<br/><br/>Values/Errors are trees: branch {i} is sender i; each item matches Channels/Labels column order. Channels are structured identifiers, not strings with parsed suffixes. Coverage: 1=sampled, 0=uncomputed, -1=unknown (legacy). NaN means unavailable/uncomputed; a measured zero stays zero. Result readers wait quietly until a background solve produces its first snapshot.",
+    "ResultValueComponent": "<br/><br/>For A to B's front: Sender=A, Receiver=B, Kind=surface, Side=front. IDs are case-sensitive. For merged sky: Kind=sky, Patch=-1. Tregenza patches use 0..144. Kind=rest reads escape; Kind=unrequested reads hits on surfaces omitted from the requested receiver outputs. These non-surface kinds ignore Receiver/Side. Consult RS Result Table's Labels when a requested channel is unavailable.",
+    "InspectComponent": "<br/><br/>Connect any RS output to Data. Text gives a compact, readable summary and usage description. Set Details=true only when you want full JSON, geometry arrays, channel data and execution statistics. You can also connect any RS object directly to a Panel for its concise representation.",
+    "SaveComponent": "<br/><br/>Use a new folder path such as C:\\Results\\case.raystrack. Connect the complete Scene and optionally its matching Result. Pulse Run once to write in the background. Existing folders are never overwritten: choose a new name. A result computed for different geometry cannot be saved with this scene. Saved true triggers are disarmed on reopen.",
+    "LoadComponent": "<br/><br/>Connect an existing .raystrack folder path, or a legacy v1 JSON path, then pulse Run. Loading runs in the worker and returns portable Scene/Result objects. Imported legacy errors, coverage and statistics may be unknown. Missing legacy geometry must be supplied before a new v2 solve/save. A saved true trigger is disarmed after reopening.",
+    "RuntimeComponent": "<br/><br/>Press Refresh once to check the adjacent bundled Python and available devices without a solve. Devices is a readable text list: each backend's availability is followed by named descriptions for every returned device field, including supported GPU backends, versions, adapter selection and failure reasons. Copy cpu or an available backend name to RS Solve. Install the complete Yak/ZIP with runtime beside the GHA. Driver probing stays in the background. Restart Rhino after replacing/installing the plug-in."
+  },
+  "transforms": [
+    {
+      "case": "identity",
+      "accepted": true,
+      "reason": null
+    },
+    {
+      "case": "translated",
+      "accepted": true,
+      "reason": null
+    },
+    {
+      "case": "rotated",
+      "accepted": true,
+      "reason": null
+    },
+    {
+      "case": "scaled",
+      "accepted": false,
+      "reason": "Transform cannot contain scale or shear. Scale the geometry upstream before RS Surface, then use Move/Rotate for instances."
+    },
+    {
+      "case": "sheared",
+      "accepted": false,
+      "reason": "Transform cannot contain scale or shear. Scale the geometry upstream before RS Surface, then use Move/Rotate for instances."
+    },
+    {
+      "case": "mirrored",
+      "accepted": false,
+      "reason": "Transform cannot mirror geometry. Mirror the mesh upstream before RS Surface; use RS Sampling Flip to reverse only emitting normals."
+    },
+    {
+      "case": "non_affine",
+      "accepted": false,
+      "reason": "Transform must be affine. Use the Transform (X) output of Move or Rotate."
+    },
+    {
+      "case": "nonfinite",
+      "accepted": false,
+      "reason": "Transform contains invalid numbers. Connect a Move/Rotate Transform (X) output or leave it empty."
+    }
+  ],
+  "sky_and_devices": {
+    "device_lines": [
+      "cpu: available \u2014 processor tracing.",
+      "cuda: unavailable \u2014 NVIDIA CUDA tracing.",
+      "cuda \u2014 Device name: Example GPU.",
+      "cuda \u2014 Device index: 0.",
+      "cuda \u2014 CUDA simulator (software, not GPU hardware): no.",
+      "cuda \u2014 Availability reason: Driver unavailable.",
+      "taichi: available \u2014 portable GPU tracing.",
+      "taichi \u2014 Taichi dependency installed: yes.",
+      "taichi \u2014 Supported GPU backends for RS Solve: vulkan.",
+      "taichi \u2014 Dependency version: 1.7.4.",
+      "taichi \u2014 Active runtime backend: not initialized.",
+      "taichi \u2014 Requested adapter (TI_VISIBLE_DEVICE): automatic selection.",
+      "taichi \u2014 Extra Capability: future field."
+    ],
+    "verified_patch_bounds": 145
+  },
+  "native_geometry": {
+    "surface_and_scene_breps": true,
+    "world_transform_once": true,
+    "valid_spherical_patches": 145,
+    "spherical_area": 307.87608005411363,
+    "expected_area": 307.8760800517997,
+    "native_text_tags": true,
+    "merged_hemisphere": true,
+    "components": {
+      "surface_scene_round_trip": true,
+      "query_accepts_sky_object": true,
+      "aligned_brep_text_outputs": true,
+      "merged_and_hidden_labels": true,
+      "example": "examples/grasshopper/facing-plates.gh"
+    },
+    "verified_interior_directions": 1305
+  },
+  "source_sha256": {
+    "grasshopper/Bridge.cs": "a53580c754aaff747b5ac226856eb0dc97a7983a1921d742bfb93942e3ad5b21",
+    "grasshopper/ComponentHelp.cs": "8df9a4c1f8f59183d83a8ee12a31bc6aa09f21dc0a1bdd0b92d91853397a5d13",
+    "grasshopper/Components.cs": "e2882d0bb613009b8da2ae55ba3fc71c1cad2dc6adc32e7d27631a41f9f32ac0",
+    "grasshopper/DataDescriptions.cs": "35226b91aef18c234bbf21adf06f2d3d06e375bf21bbe9e582bb05bfab89d3b5",
+    "grasshopper/Geometry.cs": "0483153bd997206b5630be02c11e441bff97f6cfc6b1a360039a2d149358bf2b"
+  },
+  "targeted_tests": {
+    "command": "RAYSTRACK_TEST_NATIVE_GH=1 python -m pytest tests/test_grasshopper_contract.py tests/test_grasshopper_worker.py tests/test_io_v2.py tests/test_grasshopper_packaging.py -q",
+    "passed": 81,
+    "skipped": 1
+  },
+  "scope": "Managed component contracts, native headless Rhino geometry and component connections, and Python worker storage. No GUI acceptance claimed."
+}

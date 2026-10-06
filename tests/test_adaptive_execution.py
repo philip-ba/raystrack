@@ -46,7 +46,8 @@ def test_resume_matches_uninterrupted_prefix_without_duplicate_rays():
     def record(workspace, scene, emitter, n_surf, **opts):
         shift = opts["cp_grid"].tobytes()
         start,size = opts["ray_offset"],opts["ray_count"]
-        samples = {(opts["emit_sid"],shift,ray) for ray in range(start,start+size)}
+        row = int(round(float(emitter.plane_origin[2])))
+        samples = {(row,shift,ray) for ray in range(start,start+size)}
         assert seen.isdisjoint(samples), "a previously traced ray was traced again"
         seen.update(samples)
         return trace(workspace,scene,emitter,n_surf,**opts)
@@ -106,7 +107,9 @@ def test_sampling_and_scene_changes_reject_existing_accumulation():
 
 def test_accuracy_allocation_prioritizes_noisy_rows_after_fair_exploration():
     def model(workspace,scene,emitter,n_surf,**opts):
-        row,jitter = opts["emit_sid"],float(opts["cp_grid"][0])
+        # emit_sid controls whole-surface exclusion; identify these rows by height.
+        row = int(round(float(emitter.plane_origin[2])))
+        jitter = float(opts["cp_grid"][0])
         probability = (.3+.15*jitter) if row == 0 else (.1+.8*jitter) if row == 1 else (.4+.1*jitter)
         offset,count = opts["ray_offset"],opts["ray_count"]
         hits = int((offset+count)*probability)-int(offset*probability)

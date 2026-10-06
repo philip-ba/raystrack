@@ -102,7 +102,7 @@ def _probe(prepared, params, backend, index, emitter, scene, *, include_matrix,
     cp_grid = np.asarray([0.321, 0.713], np.float32)
     cp_dims = np.asarray([0.127, 0.391, 0.547, 0.811, 0.239], np.float32)
     options = dict(samples=params.samples, rays=params.rays, surf_active=active,
-                   emit_sid=index, min_sid=0, include_matrix=include_matrix,
+                   emit_sid=-1, min_sid=0, include_matrix=include_matrix,
                    include_sky=include_sky, discrete=discrete,
                    gpu_raygen=params.gpu_raygen,
                    flip_faces=bool(getattr(params, "flip_faces", False)))

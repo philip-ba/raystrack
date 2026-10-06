@@ -24,11 +24,14 @@ def _build_emitter_surface_mask(
 ) -> np.ndarray:
     n_surf = int(bounds_center.shape[0])
     surf_active = np.ones(n_surf, dtype=np.uint8)
+    if not emitter.plane_is_planar:
+        # A nonplanar surface may see or occlude itself. Rays start slightly
+        # off their emitting triangle, so the entire mesh must remain visible.
+        return surf_active
+
+    # A planar surface cannot see itself; keep that inexpensive rejection.
     if 0 <= idx_emit < n_surf:
         surf_active[idx_emit] = 0
-
-    if not emitter.plane_is_planar:
-        return surf_active
 
     plane_origin = emitter.plane_origin
     plane_normal = emitter.plane_normal

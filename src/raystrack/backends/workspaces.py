@@ -85,6 +85,9 @@ class _CudaWorkspace:
             self.summary = cuda.device_array((len(specs), columns), np.int64)
             self.active = cuda.device_array(n_surf, np.uint8)
         self.active.copy_to_device(options["surf_active"], stream=stream)
+        # Emitter preparation still uses emitter_index. The independent trace
+        # exclusion defaults to -1 so other faces of that mesh can be hit.
+        excluded_surface = options.get("emit_sid", -1)
         ds = (prepared.get_device_instanced_scene() if getattr(scene, "instanced", False)
               else prepared.get_device_scene(use_bvh=scene.use_bvh))
         de = prepared.get_device_emitter(emitter_index, samples=options["samples"],
@@ -115,17 +118,17 @@ class _CudaWorkspace:
             kernel_zero_i64[zblocks, zthreads, stream](row)
             if getattr(scene, "instanced", False):
                 kernel_fused_instanced[blocks, threads, stream](
-                    orig, dirs, *ds, self.active, emitter_index, n_surf,
+                    orig, dirs, *ds, self.active, excluded_surface, n_surf,
                     options["discrete"], options["include_sky"], row)
             elif scene.use_bvh:
                 args = (orig, dirs, ds.v0, ds.e1, ds.e2, ds.normals, ds.sid, self.active)
                 kernel_fused_bvh[blocks, threads, stream](*args,
                     ds.bb_min, ds.bb_max, ds.left, ds.right, ds.start, ds.count,
-                    emitter_index, n_surf, options["discrete"], options["include_sky"], row)
+                    excluded_surface, n_surf, options["discrete"], options["include_sky"], row)
             else:
                 args = (orig, dirs, ds.v0, ds.e1, ds.e2, ds.normals, ds.sid, self.active)
                 kernel_fused_flat[blocks, threads, stream](*args,
-                    emitter_index, n_surf, options["discrete"], options["include_sky"], row)
+                    excluded_surface, n_surf, options["discrete"], options["include_sky"], row)
         host = self.summary[:len(specs)].copy_to_host(stream=stream)
         if stream:
             stream.synchronize()

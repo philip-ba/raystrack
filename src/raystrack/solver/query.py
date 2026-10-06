@@ -63,7 +63,7 @@ class Query:
 
     @classmethod
     def pair(cls, sender, receiver, *, receiver_sides=("front", "back")):
-        """Request one scene pair, retaining hits on unrequested surfaces."""
+        """Request one scene pair, including a same-ID self pair, retaining occluders."""
         return cls.matrix((sender,), (receiver,), receiver_sides=receiver_sides)
 
     @classmethod

@@ -9,6 +9,9 @@ not delete or change it.
 ## Install
 
 The current Windows 64-bit build supports Rhino 8.35 or newer and Grasshopper.
+Open Rhino's **PackageManager**, search for **raystrack**, and install version
+**2.0.0**, then restart Rhino. The compiled components appear on the
+**Raystrack** tab in Grasshopper.
 Yak derives this minimum from the Rhino assemblies used to compile the plugin.
 The Yak package
 and the standalone ZIP contain the same `Raystrack.Components.gha` and adjacent
@@ -23,9 +26,8 @@ python tools/grasshopper/build.py
 ```
 
 The build produces a Yak package and a standalone ZIP under `dist/grasshopper/`.
-The development tools target `raystrack-2.0.0-dev.3-rh8_35-win.yak`.
-The package version is `2.0.0-dev.3`; the numerical Python package retains its
-current development version `1.0.2`.
+The release tools target `raystrack-2.0.0-rh8_35-win.yak`.
+The Grasshopper package and numerical Python package are both version `2.0.0`.
 
 Install the local Yak package with the build tool's `--install` option, then
 restart Rhino so it loads the new assembly:
@@ -59,8 +61,7 @@ the code behind a package and keep validation reports tied to the tested build.
 
 ## Canvas structure
 
-The **Raystrack** ribbon has a category icon and numbered sections. Existing
-component artwork is reused to retain the original visual style. Every component
+The **Raystrack** ribbon has a category icon and numbered sections. The supplied RS component artwork is embedded, including the Sky icon. Every component
 has an icon and descriptions on its ports.
 
 Hover over a port for its accepted value type and purpose. Component help explains
@@ -74,9 +75,10 @@ shows its actual selections rather than just the name of the type.
 | --- | --- | --- |
 |00 Setup | **RS Runtime** | **Python** identifies the shipped interpreter; **Devices** reports availability; **Status** reports the check's state. Pulse Refresh to check. |
 |01 Scene | **RS Surface** | **Surface** carries the ID, optional label, triangle mesh and transform. Its summary reports geometry counts and placement. |
-|01 Scene | **RS Instance** | **Surface** reuses the prototype geometry with a new ID and composed transform; feed it into the same Scene input. |
+|01 Scene | **RS To Brep** | Converts a Surface or Scene to native triangulated **Breps** at their saved world placement, with matching **IDs** and **Labels**. |
 |01 Scene | **RS Scene** | **Scene** summarizes surface and shared-geometry counts; **IDs** lists the exact query identifiers in scene order. |
-|02 Solve | **RS Query** | **Query** summarizes selected senders/receivers, scene or sky outputs, and receiver sides. |
+|02 Solve | **RS Query** | **Query** summarizes selected senders/receivers, scene or sky outputs, and receiver sides. Connect an RS Sky object to **Sky**. |
+|02 Solve | **RS Sky** | Sets merged/discrete sky mode and dome display settings; outputs **Sky**, native **Patches**, matching **Labels**, **Label points**, and bakeable text **Tags**. |
 |02 Solve | **RS Sampling** | **Sampling** summarizes the estimator, density, rays or pair samples, seed and allocation mode. |
 |02 Solve | **RS Accuracy** | **Accuracy** summarizes the tolerance, convergence mode and replicate limits. |
 |02 Solve | **RS Options** | **Options** combines sampling/accuracy selections, batch size and reciprocity; omitted inputs display their effective defaults. |
@@ -99,16 +101,20 @@ RS Sampling --+                             |          +--> RS Inspect
 RS Accuracy --+
 ```
 
-Open [facing-plates.gh](../examples/grasshopper/facing-plates.gh) for a complete portable example. It
-embeds a unit-square prototype and its opposing instance, selects their pair
-query, and connects table/value inspection. **Run** and **Cancel** are false;
-set **Run** true to solve. The example contains no file-operation paths.
+Open [boxes.gh](../examples/grasshopper/boxes.gh) for a portable example. It
+compares two outward-emitting closed boxes and the inward-emitting faces of a
+box. Use the **Values** output of RS Result Table for view factors; **Errors**
+contains standard errors, which can correctly be zero. Saved true Run inputs
+are disarmed on reopen: set **Run** false, then true to launch. For the interior
+case use **Flip** true and **back** receiver sides.
 
 Surface IDs identify senders and receivers. Labels are display text. Include
 every blocker in **RS Scene**: filtering receivers in **RS Query** selects outputs
 and retains all scene occluders. Mesh winding controls the emitting normal and
-receiver front/back side. Instance transforms are rigid; use new mesh geometry
-for deformation or scaling.
+receiver front/back side. Surface transforms are rigid; use new mesh geometry
+for deformation or scaling. RS Instance has been removed; use native transforms
+and a separate RS Surface with its own ID for each placement. Older definitions
+containing RS Instance need that component replaced.
 
 ### Connecting Transform
 
@@ -116,8 +122,8 @@ The **Transform** input accepts a native Grasshopper transformation. Connect the
 **Transform (X)** output of **Move**, **Rotate** or another rigid transform component.
 For example, connect the original Rhino mesh/Brep to **Move**'s **Geometry (G)**
 input and a translation vector to its **Motion (T)** input, then
-connect Move's **Transform (X)** output to **RS Instance**. Feed the original **RS
-Surface** to that instance and choose a new ID. A vector is the motion used to
+connect Move's **Transform (X)** output to **RS Surface** with the original
+geometry and choose a distinct ID for each placement. A vector is the motion used to
 construct a transform; the vector itself is not this input's value. Do not pass
 a Panel of 16 matrix numbers.
 
@@ -131,15 +137,68 @@ already transformed **Geometry** output to **RS Surface**, leave Surface's
 Transform empty. Connecting that transformed geometry and the same transform
 applies the placement twice.
 
-An instance transform is applied **after** the prototype's current transform.
-For local mesh point `p`, prototype placement `P` and instance transform `T`, the
-instance position is `T * (P * p)`. Thus moving an already placed prototype moves
-that placed copy; it does not reset the prototype to its original mesh position.
-
 For **RS Query**, choose `matrix`, `row`, `pair` or `sky`. A row selects one sender;
-a pair selects one sender and one receiver. Sky can be `merged` or
-`tregenza145`. Result channels carry a kind, surface ID, side and optional sky
-patch; front/back names are no longer parsed from `_front` or `_back` suffixes.
+a pair selects one sender and one receiver. Connect **RS Sky** to Query's **Sky**
+input to include sky channels; this connection is required for Mode=`sky`.
+Other query modes can request sky and scene contributions together.
+
+### Sky dome and labels
+
+**RS Sky** contains all sky settings. Mode=`merged` returns a single hemisphere
+with label `Sky`; Mode=`tregenza145` returns 145 spherical Breps in patch order
+`0..144`. **Labels** exactly matches RS Result Table's sky channel labels.
+**Tags** displays each number just above its patch and can be baked directly
+as native Rhino text, alongside **Patches**. **Label points** supports custom
+Text Tag components. Connect **Sky** to a Panel or RS Inspect for a readable
+representation of its mode and display settings.
+
+**Center**, **Radius**, **Label size** and **Show labels** affect the display.
+Label size `0` scales automatically with Radius. Hidden labels leave Tags empty
+while still returning Labels and Label points. Display placement does not change
+solver directions: +Z is up, azimuth starts at +X and increases toward +Y, and
+alternate Tregenza rings are offset by half a sector. Patch 144 is the zenith cap.
+The dome has no rotation setting, so its labels stay aligned with the solver.
+
+### Converting back to Rhino
+
+Connect an RS Surface or RS Scene, including RS Load's Scene, to **RS To Brep**.
+The component returns one native Brep per surface, in scene order, and applies
+each saved transform once. IDs and Labels follow the same order. These are the
+stored triangle faces; the original smooth Brep is not retained after RS Surface
+meshes it. Use or bake these Breps with ordinary Rhino/Grasshopper tools.
+
+Result channels carry a kind, surface ID, side and optional sky patch; front/back
+names are no longer parsed from `_front` or `_back` suffixes.
+
+### Self-viewing within one mesh
+
+Self-viewing is enabled by default. A surface can receive rays on other faces
+of its own mesh, so a concave enclosure does not need to be split into separate
+RS Surfaces. Matrix and row queries include the sender's receiver channels;
+for a pair query, choose the same surface ID for Senders and Receivers.
+Unrequested self-hits still block sky and other receivers.
+
+For a box with outward mesh normals, set **RS Sampling → Flip** true to emit
+into the interior, and read the box's **back** receiver channel (or keep Sides
+set to both). A closed box then has self view factor 1 and zero sky/escape. With
+inward mesh normals, leave Flip false and read the **front** receiver channel.
+Flip changes emitting normals only; receiver side labels keep the stored mesh
+winding. An outward-emitting convex mesh correctly has zero self view factor.
+
+CPU, CUDA and portable GPU tracing share this behavior, including flat/BVH and
+instanced traversal. The CPU area-pair estimator also accepts a same-ID pair.
+Ray origins are offset from their starting triangle to avoid immediate numerical
+self-intersections; other faces of the same mesh remain visible.
+
+The dev.5 self-viewing checks cover closed/convex boxes on CPU and physical
+Vulkan, including deferred replicates, plus an open-box analytical check
+(measured self 0.79859375 and sky 0.20140625 versus expected 0.8 and 0.2).
+See the [self-viewing report](../validation/results/grasshopper_dev5_self_viewing.json).
+
+The dev.5 regression suite passed 254 tests, with 23 optional/platform skips.
+The actual packaged interpreter also passed the CPU and physical Vulkan enclosure
+checks. CUDA self-viewing was checked in simulation with both ray generation
+paths; physical CUDA hardware was not tested.
 
 **RS Sampling** retains the validated cosine estimator and offers CPU-only
 `area_pair` sampling for pair queries. The `fair` and `adaptive` modes allocate
@@ -246,7 +305,7 @@ _-RunPythonScript "<repository>\tools\grasshopper\host_smoke.py"
 ```
 
 The script opens Grasshopper, builds a real definition using two facing unit
-squares (one prototype and one rigidly transformed instance), runs the installed
+squares (one lower surface and one rigidly transformed upper surface), runs the installed
 components, and writes
 `.local/host-proof/grasshopper-report.json`. It returns to Rhino immediately and
 uses a Windows Forms timer on the UI thread to verify responsiveness while the
@@ -254,7 +313,7 @@ worker is active. The generated definition is saved as
 `.local/host-proof/raystrack-plates-smoke.gh`.
 
 The acceptance checks include the analytical pair factor `0.1998248957`, multiple
-live ray updates, instance geometry/preview, component icons and port descriptions,
+live ray updates, surface placement and To Brep, Sky patches/labels/tags, component icons and port descriptions,
 v2 Save/Load, active-run
 cancellation, owned-worker cleanup when the document is removed, and disarmed
 triggers after reopening the saved definition. A runtime/device check is queued
@@ -277,13 +336,16 @@ Save/Load, cancellation, a queued runtime check, document-owned process cleanup,
 and reopening with disarmed triggers all passed. See the saved
 [acceptance report](../validation/results/grasshopper_v2_acceptance.json) for the
 checks, source hashes and device information, and the
-[portable example](../examples/grasshopper/facing-plates.gh) for the tested workflow.
+[portable example](../examples/grasshopper/boxes.gh) for the tested workflow.
 
-That report applies to its recorded source hashes. The later `2.0.0-dev.3`
-usability refinements receive separate managed and runtime checks. Native GUI
-validation of those changes is left to your own testing after installation.
-Test the changes in Grasshopper or run the host script before attributing the
-earlier acceptance result to that build.
+That report applies to its recorded source hashes. The earlier `2.0.0-dev.4`
+changes passed 81 targeted tests (one platform-specific skip), including worker
+Save/Load, managed summaries/icons, native surface/scene Breps and actual
+Grasshopper connections for Sky/Query/To Brep. All 1,305 sampled native Brep
+interior directions matched the numerical solver's patch IDs. See the
+[current validation report](../validation/results/grasshopper_dev4_native.json).
+These checks used a headless Rhino core. Run the host script for installed-canvas
+and interactive viewport acceptance of this version.
 
 Developers can separately run `python tools/grasshopper/assembly_contract.py` to
 check summaries, malformed snapshot diagnoses, rigid transforms, component help
@@ -296,3 +358,7 @@ correctness and responsiveness without making performance comparisons. Real
 Rhino acceptance covers Windows and Rhino 8. Physical CUDA and Metal execution
 remain separate validation tasks; no claim about those devices follows from the
 CPU host test.
+
+`python tools/grasshopper/assembly_contract.py --native` also verifies native
+surface/scene Breps, world transforms, every spherical sky patch's area and
+text tag, and the merged hemisphere in a headless Rhino geometry core.

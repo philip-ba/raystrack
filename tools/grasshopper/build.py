@@ -28,7 +28,7 @@ PYTHON_URL = f"https://www.python.org/ftp/python/{PYTHON_VERSION}/{PYTHON_ARCHIV
 # Digest published in Python.org's release Sigstore bundle for this exact file.
 PYTHON_SHA256 = "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"
 PYTHON_RELEASE = "https://www.python.org/downloads/release/python-31210/"
-VERSION = "2.0.0-dev.3"
+VERSION = "2.0.0"
 ASSEMBLY = "Raystrack.Components.gha"
 
 
@@ -294,9 +294,11 @@ def smoke_runtime(runtime: Path, *, gpu=False) -> None:
     """
     script = r'''
 import sys, json
+from importlib.metadata import version
 import numpy as np
 import numba
-from raystrack import Scene, Mesh, Solver, Query, SolveOptions, Sampling, Budget
+from raystrack import Scene, Mesh, Solver, Query, SolveOptions, Sampling, Accuracy, Budget, Channel
+assert version("raystrack") == RELEASE_VERSION
 vertices = [[0,0,0],[1,0,0],[1,1,0],[0,1,0]]
 faces = [[0,1,2],[0,2,3]]
 upper = [[x,y,1] for x,y,z in vertices]
@@ -309,9 +311,21 @@ with Solver(scene, device=DEVICE) as solver:
     fresh = solver.start(Query.pair("A","B"), options).advance(Budget(rays=64))
     assert result.cumulative_rays == fresh.cumulative_rays == 64
     assert np.array_equal(result.data.estimates, fresh.data.estimates)
-print(json.dumps({"python": sys.version.split()[0], "numpy": np.__version__, "numba": numba.__version__, "device": DEVICE, "resume": "exact"}))
+box_vertices = [[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]]
+box_faces = [[0,2,1],[0,3,2],[4,5,6],[4,6,7],[0,1,5],[0,5,4],
+             [1,2,6],[1,6,5],[2,3,7],[2,7,6],[3,0,4],[3,4,7]]
+box = Scene.from_meshes({"box": Mesh(box_vertices,box_faces)})
+inside = SolveOptions(Sampling(density=2,rays_per_cell=16,flip_faces=True),
+                      Accuracy(max_replicates=2,min_replicates=2,tolerance=0))
+with Solver(box,device=DEVICE,acceleration="instanced",auto_tune=False) as solver:
+    self_view = solver.solve(Query.pair("box","box"),inside)
+    assert self_view.value("box",Channel("surface","box","back")) == 1
+    assert self_view.value("box",Channel("surface","box","front")) == 0
+    assert self_view.value("box",Channel("rest")) == 0
+print(json.dumps({"python": sys.version.split()[0], "raystrack":version("raystrack"), "numpy": np.__version__, "numba": numba.__version__, "device": DEVICE, "resume": "exact", "closed_box_self_view":1,"closed_box_escape":0}))
 '''
     script = script.replace("DEVICE", repr("vulkan" if gpu else "cpu"))
+    script = script.replace("RELEASE_VERSION", repr(VERSION))
     with tempfile.TemporaryDirectory(prefix="raystrack-gh-relocated-") as temporary:
         temporary_path = Path(temporary)
         env = os.environ.copy()
@@ -429,12 +443,13 @@ def main(argv=None) -> int:
         return 0
     for source, name in ((GH / "manifest.yml", "manifest.yml"),
                          (GH / "README.md", "README.md"),
+                         (ROOT / "CHANGELOG.md", "CHANGELOG.md"),
                          (ROOT / "LICENSE", "LICENSE")):
         if source.exists():
             shutil.copy2(source, stage / name)
     guide = stage / "docs"
     guide.mkdir()
-    for name in ("grasshopper.md", "v2-migration.md"):
+    for name in ("grasshopper.md", "v2-migration.md", "releasing.md"):
         source = ROOT / "docs" / name
         if source.exists():
             shutil.copy2(source, guide / name)
@@ -445,7 +460,7 @@ def main(argv=None) -> int:
         for pattern in ("*.gh", "*.ghx", "README.md"):
             for source in sorted(examples.glob(pattern)):
                 shutil.copy2(source, target / source.name)
-    for name in ("grasshopper_v2_acceptance.json", "grasshopper_dev3_managed.json"):
+    for name in ("grasshopper_v2_acceptance.json", "grasshopper_dev3_managed.json", "grasshopper_dev4_native.json", "grasshopper_dev5_self_viewing.json", "grasshopper_boxes.json", "grasshopper_v2_release.json"):
         report = ROOT / "validation" / "results" / name
         if report.exists():
             target = stage / "validation" / "results"

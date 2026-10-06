@@ -1,9 +1,10 @@
-# Migrating to the v2 source API
+# Migrating to Raystrack 2.0.0
 
 The v1 reference checkpoint is
 `1757748cea4f523324f6ba44235699390b9a826c`. The current source tree uses a unified
-v2 API; package metadata stays `1.0.2` as requested. This work does not publish a
-release, create a release tag, or push the repository.
+v2 API, published as `raystrack==2.0.0`. This major release replaces the v1
+calculation functions and parameter classes; update existing scripts before
+upgrading. The matching compiled Grasshopper package is also version `2.0.0`.
 
 ## Objects and ownership
 

@@ -27,7 +27,7 @@ namespace Raystrack.Grasshopper
                         foreach (var entry in surfaces)
                         {
                             var surface = entry as JObject;
-                            if (surface == null) return "Each Scene item must be an RS Surface or Instance.";
+                            if (surface == null) return "Each Scene item must be an RS Surface.";
                             string error = Surface(surface);
                             if (error != null) return error;
                             if (!ids.Add((string)surface["id"])) return "Duplicate surface ID '" + surface["id"] + "'; give every instance a unique ID.";
@@ -44,6 +44,15 @@ namespace Raystrack.Grasshopper
                         if (Present(sides) && (!(sides is JArray) || !sides.Any() || sides.Values<string>().Distinct().Count() != sides.Count() || sides.Values<string>().Any(s => s != "front" && s != "back")))
                             return "Receiver sides must select front and/or back once each.";
                         return null;
+                    case "sky":
+                        string modeError = Choice(value, "mode", new[] { "merged", "tregenza145" });
+                        if (!Present(value["mode"]) || modeError != null) return modeError ?? "Sky Mode must be merged or tregenza145.";
+                        var center = value["center"] as JArray;
+                        if (center == null || center.Count != 3 || center.Any(v => !Finite(v))) return "Sky Center needs three finite coordinates.";
+                        if (!Finite(value["radius"]) || (double)value["radius"] <= 0) return "Sky Radius must be finite and greater than 0.";
+                        if (!Finite(value["label_size"]) || (double)value["label_size"] <= 0) return "Sky Label size must be finite and greater than 0.";
+                        if (value["show_labels"] == null || value["show_labels"].Type != JTokenType.Boolean) return "Sky Show labels must be true or false.";
+                        return null;
                     case "sampling": return Sampling(value);
                     case "accuracy": return Accuracy(value);
                     case "options":
@@ -54,7 +63,7 @@ namespace Raystrack.Grasshopper
                             Integer(value, "batch_size", 1) ?? Choice(value["postprocessing"] as JObject ?? new JObject(), "reciprocity", new[] { "none", "shortcut", "bidirectional", "rowsum" });
                     case "result": return Result(value);
                     case "channel": return Channel(value, "channel_kind");
-                    default: return (string)value["reason"] ?? "Expected an RS Surface, Scene, Query, Sampling, Accuracy, Options, Result or Channel output.";
+                    default: return (string)value["reason"] ?? "Expected an RS Surface, Scene, Sky, Query, Sampling, Accuracy, Options, Result or Channel output.";
                 }
             }
             catch (Exception) { return "Raystrack data has an invalid field type; reconnect the originating component output."; }
@@ -66,7 +75,7 @@ namespace Raystrack.Grasshopper
             if (value["id"] == null || value["id"].Type != JTokenType.String || string.IsNullOrWhiteSpace((string)value["id"])) return "Surface ID must be nonempty text.";
             string prefix = "Surface '" + value["id"] + "': ";
             var mesh = value["mesh"] as JObject;
-            if (mesh == null) return prefix + "missing mesh; connect RS Surface or RS Instance.";
+            if (mesh == null) return prefix + "missing mesh; connect RS Surface.";
             var vertices = mesh["vertices"] as JArray;
             var faces = mesh["faces"] as JArray;
             if (vertices == null || faces == null) return prefix + "mesh needs vertex and triangle lists.";
@@ -195,9 +204,10 @@ namespace Raystrack.Grasshopper
             string kind = value == null || value["kind"] == null || value["kind"].Type != JTokenType.String ? "" : (string)value["kind"];
             switch (kind)
             {
-                case "surface": return "Triangle geometry with a stable ID, label and rigid transform. Front follows face winding. Connect to RS Scene or RS Instance.";
+                case "surface": return "Triangle geometry with a stable ID, label and rigid transform. Front follows face winding. Connect to RS Scene or RS To Brep.";
                 case "scene": return "Complete set of surfaces and blockers. Query selection keeps every scene occluder. Connect to RS Solve or RS Save.";
                 case "query": return "Sender IDs, receiver sides and scene/sky channels requested from a complete Scene. Connect to RS Solve.";
+                case "sky": return "Sky channel settings for RS Query. RS Sky supplies native dome Breps, matching channel labels, center points and bakeable text tags. Display center/radius do not change solver directions; +Z is up and azimuth runs from +X towards +Y.";
                 case "sampling": return "Estimator, ray density, seed and emitting-side settings. Connect to RS Options.";
                 case "accuracy": return "Convergence test, tolerance and replicate limits. Connect to RS Options.";
                 case "options": return "Unified sampling, accuracy, batch and reciprocity controls. Omitted values use Python defaults. Connect to RS Solve.";
@@ -231,6 +241,9 @@ namespace Raystrack.Grasshopper
                     case "query":
                         return title + ": senders " + Selection(value["senders"]) + "; receivers " + ((bool?)value["scene"] == false ? "none (sky only)" : Selection(value["receivers"])) +
                             "; sides " + (value["receiver_sides"] == null ? "front + back" : string.Join(" + ", value["receiver_sides"].Values<string>())) + "; sky " + Text(value, "sky_mode", "none");
+                    case "sky": return title + ": " + (string)value["mode"] + "; " + ((string)value["mode"] == "merged" ? "1 hemisphere channel (Sky)" : "145 patches (Sky patch 0..144)") +
+                        "; center (" + string.Join(", ", value["center"].Values<double>().Select(v => v.ToString("G5", CultureInfo.InvariantCulture))) + "); radius " + Text(value, "radius", "10") +
+                        "; label size " + Text(value, "label_size", "auto") + "; labels " + ((bool)value["show_labels"] ? "shown" : "hidden") + "; +Z up, azimuth +X toward +Y";
                     case "sampling": return title + ": " + Sampling(value);
                     case "accuracy": return title + ": " + Accuracy(value);
                     case "options": return title + ": " + Sampling(value["sampling"] as JObject ?? new JObject()) + "; " + Accuracy(value["accuracy"] as JObject ?? new JObject()) +
@@ -293,5 +306,57 @@ namespace Raystrack.Grasshopper
 
         /// <summary>Use readable singular/plural units in geometry and result summaries.</summary>
         private static string Count(int count, string singular, string plural = null) { return count.ToString(CultureInfo.InvariantCulture) + " " + (count == 1 ? singular : plural ?? singular + "s"); }
+    }
+
+    /// <summary>Explain every runtime device field as Panel-friendly list entries.</summary>
+    internal static class DeviceDescriptions
+    {
+        internal static string[] Format(JObject devices)
+        {
+            var lines = new List<string>();
+            if (devices == null) return new[] { "No device information was returned. Pulse Refresh to check again." };
+            foreach (var backend in devices.Properties())
+            {
+                var details = backend.Value as JObject;
+                if (details == null) { lines.Add(backend.Name + ": " + Display(backend.Value)); continue; }
+                bool available = (bool?)details["available"] == true;
+                lines.Add(backend.Name + ": " + (available ? "available" : "unavailable") +
+                    (backend.Name == "cpu" ? " — processor tracing." : backend.Name == "cuda" ? " — NVIDIA CUDA tracing." : backend.Name == "taichi" ? " — portable GPU tracing." : "."));
+                foreach (var field in details.Properties())
+                {
+                    if (field.Name == "available") continue;
+                    string title;
+                    switch (field.Name)
+                    {
+                        case "name": title = "Device name"; break;
+                        case "id": title = "Device index"; break;
+                        case "simulated": title = "CUDA simulator (software, not GPU hardware)"; break;
+                        case "installed": title = "Taichi dependency installed"; break;
+                        case "architectures": title = "Supported GPU backends for RS Solve"; break;
+                        case "version": title = "Dependency version"; break;
+                        case "runtime_arch": title = "Active runtime backend"; break;
+                        case "adapter": title = "Requested adapter (TI_VISIBLE_DEVICE)"; break;
+                        case "reason": title = "Availability reason"; break;
+                        default: title = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(field.Name.Replace('_', ' ')); break;
+                    }
+                    string description = Display(field.Value, field.Name == "version" ? "." : ", ");
+                    if (field.Value.Type == JTokenType.Null)
+                        description = field.Name == "runtime_arch" ? "not initialized" : field.Name == "adapter" ? "automatic selection" : "not reported";
+                    lines.Add(backend.Name + " — " + title + ": " + description + ".");
+                }
+            }
+            return lines.ToArray();
+        }
+
+        private static string Display(JToken value, string separator = ", ")
+        {
+            if (value == null || value.Type == JTokenType.Null) return "not reported";
+            if (value.Type == JTokenType.Boolean) return (bool)value ? "yes" : "no";
+            var array = value as JArray;
+            if (array != null) return array.Count == 0 ? "none" : string.Join(separator, array.Select(v => Display(v)));
+            var obj = value as JObject;
+            if (obj != null) return string.Join("; ", obj.Properties().Select(p => p.Name.Replace('_', ' ') + ": " + Display(p.Value)));
+            return value.Type == JTokenType.String ? (string)value : value.ToString(Formatting.None);
+        }
     }
 }

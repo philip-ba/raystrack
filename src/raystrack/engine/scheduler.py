@@ -244,7 +244,7 @@ def advance(prepared, cfg, acc, *, cancel=None, progress=None, allow_calibration
             em = emitters[idx]
             active = (np.ones(n_surf, np.uint8) if em is None
                       else _build_emitter_surface_mask(idx, em, centers, extents))
-            recv = np.asarray([names.index(name) for name in p.receiver_names if name != names[idx]], np.int32)
+            recv = np.asarray([names.index(name) for name in p.receiver_names], np.int32)
             selected = np.asarray([j+offset for offset, side in ((0,"front"),(n_surf,"back"))
                                    if p.include_matrix and side in p.receiver_sides for j in recv], np.int32)
             matrix = _Estimate(p, 2*n_surf+2, selected,
@@ -353,8 +353,10 @@ def advance(prepared, cfg, acc, *, cancel=None, progress=None, allow_calibration
         state, em = states[idx], emitters[idx]
         include_matrix = True
         include_sky = state.sky is not None
+        # The trace argument excludes an entire surface, not just the launch
+        # triangle. Origins are already offset, so keep every surface visible.
         opts = dict(samples=p.samples, rays=p.rays, surf_active=state.active,
-                    emit_sid=idx, min_sid=0, include_matrix=include_matrix,
+                    emit_sid=-1, min_sid=0, include_matrix=include_matrix,
                     include_sky=include_sky, discrete=discrete, gpu_raygen=p.gpu_raygen,
                     flip_faces=p.flip_faces)
         group = 1

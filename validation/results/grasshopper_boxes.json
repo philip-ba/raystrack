@@ -1,0 +1,299 @@
+{
+  "phase": "passed",
+  "validation": "native Grasshopper definition and installed dev.5 worker, headless Rhino core",
+  "definition": "examples/grasshopper/boxes.gh",
+  "definition_sha256": "61d289d893ed9ef5427390fe0fa06fdfd24269b4adbd67dc0c96a1557442d815",
+  "assembly_sha256": "5b76d8d216d7abdabb79b08c5c220b8148a836fff16c5560ffad98750aadd829",
+  "gui_opened": false,
+  "results": [
+    {
+      "component_id": "12c04490-6df2-4aba-b953-9623de1c3e31",
+      "sender_ids": [
+        "box_1",
+        "box_2"
+      ],
+      "channels": [
+        {
+          "kind": "surface",
+          "surface_id": "box_1",
+          "side": "front",
+          "patch": null
+        },
+        {
+          "kind": "surface",
+          "surface_id": "box_1",
+          "side": "back",
+          "patch": null
+        },
+        {
+          "kind": "surface",
+          "surface_id": "box_2",
+          "side": "front",
+          "patch": null
+        },
+        {
+          "kind": "surface",
+          "surface_id": "box_2",
+          "side": "back",
+          "patch": null
+        },
+        {
+          "kind": "sky",
+          "surface_id": null,
+          "side": null,
+          "patch": null
+        },
+        {
+          "kind": "rest",
+          "surface_id": null,
+          "side": null,
+          "patch": null
+        }
+      ],
+      "values": [
+        [
+          0.0,
+          0.0,
+          0.06916341145833334,
+          0.0,
+          0.46546061197916666,
+          0.4653759765625
+        ],
+        [
+          0.06920297475961538,
+          0.0,
+          0.0,
+          0.0,
+          0.46544846754807695,
+          0.4653485576923077
+        ]
+      ],
+      "errors": [
+        [
+          0.0,
+          0.0,
+          9.357083343928086e-05,
+          0.0,
+          7.65351645560604e-05,
+          0.0001180750059627407
+        ],
+        [
+          9.662325792692697e-05,
+          0.0,
+          0.0,
+          0.0,
+          6.62423809679338e-05,
+          7.076752727588922e-05
+        ]
+      ],
+      "coverage": [
+        1,
+        1
+      ],
+      "cumulative_rays": 1945600,
+      "message": [
+        "Converged"
+      ],
+      "device": null
+    },
+    {
+      "component_id": "1fc5715d-cff8-477f-a3f1-5d68b86bc442",
+      "sender_ids": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "channels": [
+        {
+          "kind": "surface",
+          "surface_id": "0",
+          "side": "back",
+          "patch": null
+        },
+        {
+          "kind": "surface",
+          "surface_id": "1",
+          "side": "back",
+          "patch": null
+        },
+        {
+          "kind": "surface",
+          "surface_id": "2",
+          "side": "back",
+          "patch": null
+        },
+        {
+          "kind": "surface",
+          "surface_id": "3",
+          "side": "back",
+          "patch": null
+        },
+        {
+          "kind": "surface",
+          "surface_id": "4",
+          "side": "back",
+          "patch": null
+        },
+        {
+          "kind": "surface",
+          "surface_id": "5",
+          "side": "back",
+          "patch": null
+        },
+        {
+          "kind": "rest",
+          "surface_id": null,
+          "side": null,
+          "patch": null
+        },
+        {
+          "kind": "unrequested",
+          "surface_id": null,
+          "side": null,
+          "patch": null
+        }
+      ],
+      "values": [
+        [
+          0.0,
+          0.199962158203125,
+          0.2001318359375,
+          0.19954345703125,
+          0.200360107421875,
+          0.20000244140625,
+          0.0,
+          0.0
+        ],
+        [
+          0.1995654296875,
+          0.0,
+          0.199971923828125,
+          0.200157470703125,
+          0.200321044921875,
+          0.199984130859375,
+          0.0,
+          0.0
+        ],
+        [
+          0.19982421875,
+          0.200269775390625,
+          0.0,
+          0.200478515625,
+          0.19970458984375,
+          0.1997216796875,
+          1.220703125e-06,
+          0.0
+        ],
+        [
+          0.200478515625,
+          0.199786376953125,
+          0.200328369140625,
+          0.0,
+          0.199683837890625,
+          0.1997216796875,
+          1.220703125e-06,
+          0.0
+        ],
+        [
+          0.199822998046875,
+          0.20029296875,
+          0.199874267578125,
+          0.200419921875,
+          0.0,
+          0.199588623046875,
+          1.220703125e-06,
+          0.0
+        ],
+        [
+          0.2002880859375,
+          0.2000341796875,
+          0.19992919921875,
+          0.199615478515625,
+          0.200133056640625,
+          0.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "errors": [
+        [
+          0.0,
+          0.00021635850914564464,
+          0.0002756707396770897,
+          0.0002145219394613632,
+          0.00020312751792171064,
+          0.0001795919748268325,
+          0.0,
+          0.0
+        ],
+        [
+          0.00021843300181587295,
+          0.0,
+          0.00021740617456986888,
+          0.0002735892476145113,
+          0.00020646481957922993,
+          0.000181821530635174,
+          0.0,
+          0.0
+        ],
+        [
+          0.00027376647799687656,
+          0.0002171834071663361,
+          0.0,
+          0.00019838539846736395,
+          0.00019552800783056648,
+          0.00019375171679260992,
+          1.220703125e-06,
+          0.0
+        ],
+        [
+          0.00019838539846736398,
+          0.0002700435119055179,
+          0.00021690046255394227,
+          0.0,
+          0.00019571047993099166,
+          0.00019375171679261033,
+          1.220703125e-06,
+          0.0
+        ],
+        [
+          0.00020823545034923178,
+          0.0001831342372707482,
+          0.0002029294270675011,
+          0.00022579905020559776,
+          0.0,
+          0.0002908104667392006,
+          1.220703125e-06,
+          0.0
+        ],
+        [
+          0.00019737556629811136,
+          0.0002207781526994492,
+          0.00018355604022639885,
+          0.00021580319860028886,
+          0.0002779274925964595,
+          0.0,
+          0.0,
+          0.0
+        ]
+      ],
+      "coverage": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "cumulative_rays": 4915200,
+      "message": [
+        "Maximum replicates reached"
+      ],
+      "device": null
+    }
+  ],
+  "interpretation": "Exterior emission has zero self-factor for each convex box. Interior split faces have zero diagonal and roughly 0.2 to each other face, with row sum 1. Saved true Run inputs must be switched false then true on reopening."
+}

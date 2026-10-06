@@ -305,6 +305,30 @@ def test_save_load_uses_v2_and_checks_geometry_after_transform_update(tmp_path):
     assert json.loads((Path(path) / "manifest.json").read_text())["version"] == 2
 
 
+def test_worker_single_box_interior_self_view_and_storage(tmp_path):
+    from tests.self_view_cases import box_mesh
+    mesh = box_mesh(inward=False)
+    args = arguments(rays=0)
+    args["scene"] = {"kind": "scene", "surfaces": [
+        {"id": "box", "label": "One closed box mesh", "mesh":
+         {"vertices": mesh.vertices.tolist(), "faces": mesh.faces.tolist()}}]}
+    args["query"].update(senders=["box"], receivers=["box"])
+    args["options"]["sampling"]["flip_faces"] = True
+    with WorkerService() as service:
+        service.request("solve", args)
+        solved = wait(service, args)
+        result = result_from_json(solved["result"])
+        assert result.value("box", Channel("surface", "box", "back")) == 1
+        assert result.value("box", Channel("surface", "box", "front")) == 0
+        assert result.value("box", Channel("rest")) == 0
+        path = str(tmp_path / "self-view-box.raystrack")
+        service.request("save", {"path": path, "scene": args["scene"], "result": solved["result"]}).result(10)
+        restored = service.request("load", {"path": path}).result(10)
+        assert restored["result"] == solved["result"]
+        assert len(restored["scene"]["surfaces"]) == 1
+    assert json.loads((Path(path) / "manifest.json").read_text())["version"] == 2
+
+
 def test_reciprocity_is_only_applied_after_full_completion():
     args = arguments(rays=47)
     args["query"]["senders"], args["query"]["receivers"] = None, None

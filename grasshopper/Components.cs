@@ -14,7 +14,7 @@ namespace Raystrack.Grasshopper
     public sealed class SurfaceComponent : RsComponent
     {
         /// <summary>Create a stable-ID triangle surface from a Mesh/Brep and an optional native rigid Transform.</summary>
-        public SurfaceComponent() : base("Surface", "Surface", "Give a mesh or Brep a stable surface ID and optional rigid transform. Mesh Breps once upstream for large scenes.", "01 Scene", "RaystrackLoadMeshes") { }
+        public SurfaceComponent() : base("Surface", "Surface", "Give a mesh or Brep a stable surface ID and optional rigid transform. Mesh Breps once upstream for large scenes.", "01 Scene", "RS_Surface") { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17401"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -26,7 +26,7 @@ namespace Raystrack.Grasshopper
             p.AddTransformParameter("Transform", "T", "Optional Grasshopper Transform: connect the X/Transform output of Move or Rotate. Leave empty for identity. Rotation/translation only; no scale, shear or mirror. Use original Geometry, not already moved geometry plus the same transform.", GH_ParamAccess.item); p[3].Optional = true;
         }
         /// <summary>Define documented snapshot/status/numeric output ports for this workflow step.</summary>
-        protected override void RegisterOutputParams(GH_OutputParamManager p) { p.AddGenericParameter("Surface", "S", "Portable surface snapshot; connect to RS Scene or RS Instance.", GH_ParamAccess.item); }
+        protected override void RegisterOutputParams(GH_OutputParamManager p) { p.AddGenericParameter("Surface", "S", "Portable surface snapshot; connect to RS Scene or RS To Brep.", GH_ParamAccess.item); }
         /// <summary>Create a stable-ID triangle surface from a Mesh/Brep and an optional native rigid Transform.</summary>
         protected override void Evaluate(IGH_DataAccess da)
         {
@@ -80,33 +80,33 @@ namespace Raystrack.Grasshopper
         }
     }
 
-    /// <summary>Share prototype triangle geometry while assigning a distinct ID and composing a new rigid placement.</summary>
-    public sealed class InstanceComponent : RsComponent
+    /// <summary>Return stored surface or scene triangles as native Rhino Breps in world coordinates.</summary>
+    public sealed class ToBrepComponent : RsComponent
     {
-        /// <summary>Share prototype triangle geometry while assigning a distinct ID and composing a new rigid placement.</summary>
-        public InstanceComponent() : base("Instance", "Instance", "Reuse a surface's triangle geometry with a new ID and rigid transform. Geometry is shared in the solver and saved files.", "01 Scene", "RaystrackSync", GH_Exposure.secondary) { }
-        /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
-        public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17402"); } }
+        /// <summary>Convert a portable snapshot back into usable Rhino geometry.</summary>
+        public ToBrepComponent() : base("To Brep", "To Brep", "Convert an RS Surface or complete RS Scene into native Rhino Breps, with saved transforms applied once.", "01 Scene", "RS_To_Brep", GH_Exposure.secondary) { }
+        /// <summary>New identity; the removed Instance component's identity is never reinterpreted.</summary>
+        public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17415"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
         protected override void RegisterInputParams(GH_InputParamManager p)
         {
-            p.AddGenericParameter("Surface", "S", "Prototype surface from RS Surface or RS Instance.", GH_ParamAccess.item);
-            p.AddTextParameter("ID", "ID", "Unique stable ID for the new instance.", GH_ParamAccess.item, "instance");
-            p.AddTransformParameter("Transform", "T", "Grasshopper Transform from Move/Rotate's X output; empty means identity. Applied AFTER the prototype transform: new = T * prototype. Rotation/translation only, in document units.", GH_ParamAccess.item); p[2].Optional = true;
-            p.AddTextParameter("Label", "L", "Optional instance display label.", GH_ParamAccess.item, "");
+            p.AddGenericParameter("Data", "D", "RS Surface or RS Scene, including an RS Load Scene. Each surface becomes one triangulated Brep in scene order.", GH_ParamAccess.item);
         }
         /// <summary>Define documented snapshot/status/numeric output ports for this workflow step.</summary>
-        protected override void RegisterOutputParams(GH_OutputParamManager p) { p.AddGenericParameter("Surface", "S", "Instance snapshot for RS Scene.", GH_ParamAccess.item); }
-        /// <summary>Share prototype triangle geometry while assigning a distinct ID and composing a new rigid placement.</summary>
+        protected override void RegisterOutputParams(GH_OutputParamManager p)
+        {
+            p.AddBrepParameter("Breps", "B", "Native Breps of the stored triangles, with world placement applied. Mesh conversion cannot recover the original unmeshed Brep.", GH_ParamAccess.list);
+            p.AddTextParameter("IDs", "ID", "Surface IDs in the same order as Breps.", GH_ParamAccess.list);
+            p.AddTextParameter("Labels", "L", "Surface display labels in the same order as Breps; absent labels are empty.", GH_ParamAccess.list);
+        }
+        /// <summary>Convert detached snapshot geometry without changing its fields.</summary>
         protected override void Evaluate(IGH_DataAccess da)
         {
-            var surface = Data(da, 0, "surface", true);
-            string id = Text(da, 1, "instance"); Require(!string.IsNullOrWhiteSpace(id), "ID must be nonempty.");
-            var t = TransformInput(da, 2);
-            var old = Transform.Identity; var rows = surface["transform"] as JArray;
-            if (rows != null) for (int r = 0; r < 4; r++) for (int c = 0; c < 4; c++) old[r, c] = (double)rows[r][c];
-            surface["id"] = id; surface["label"] = Text(da, 3, ""); surface["transform"] = Matrix(t * old);
-            da.SetData(0, new SnapshotGoo(surface));
+            var value = Data(da, 0, null, true);
+            var surfaces = SnapshotGeometry.Surfaces(value).ToArray();
+            da.SetDataList(0, SnapshotGeometry.ToBreps(value));
+            da.SetDataList(1, surfaces.Select(s => (string)s["id"]));
+            da.SetDataList(2, surfaces.Select(s => (string)s["label"] ?? ""));
         }
     }
 
@@ -114,11 +114,11 @@ namespace Raystrack.Grasshopper
     public sealed class SceneComponent : RsComponent
     {
         /// <summary>Collect all surfaces and blockers into a complete scene with unique IDs.</summary>
-        public SceneComponent() : base("Scene", "Scene", "Collect all emitting, receiving and blocking surfaces. Queries select outputs without removing any occluders.", "01 Scene", "RaystrackLoadMeshes") { }
+        public SceneComponent() : base("Scene", "Scene", "Collect all emitting, receiving and blocking surfaces. Queries select outputs without removing any occluders.", "01 Scene", "RS_Scene") { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17403"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
-        protected override void RegisterInputParams(GH_InputParamManager p) { p.AddGenericParameter("Surfaces", "S", "All RS Surface/Instance snapshots, including blockers. IDs must be unique.", GH_ParamAccess.list); }
+        protected override void RegisterInputParams(GH_InputParamManager p) { p.AddGenericParameter("Surfaces", "S", "All RS Surface snapshots, including blockers. IDs must be unique.", GH_ParamAccess.list); }
         /// <summary>Define documented snapshot/status/numeric output ports for this workflow step.</summary>
         protected override void RegisterOutputParams(GH_OutputParamManager p)
         {
@@ -133,7 +133,7 @@ namespace Raystrack.Grasshopper
             foreach (var item in input)
             {
                 var surface = ObjectData(item, "surface"); string id = (string)surface["id"];
-                Require(ids.Add(id), "Duplicate surface ID '" + id + "'. Give each surface or instance a distinct ID.");
+                Require(ids.Add(id), "Duplicate surface ID '" + id + "'. Give each surface a distinct ID.");
                 surfaces.Add(surface);
             }
             Require(surfaces.Count > 0, "Surfaces must contain at least one surface.");
@@ -146,7 +146,7 @@ namespace Raystrack.Grasshopper
     public sealed class QueryComponent : RsComponent
     {
         /// <summary>Construct matrix, row, pair or sky selections without removing scene occluders.</summary>
-        public QueryComponent() : base("Query", "Query", "Select matrix, row, pair or sky outputs through the same solver. Scene occluders are always retained.", "02 Solve", "RaystrackComputeVFMatrix") { }
+        public QueryComponent() : base("Query", "Query", "Select matrix, row, pair or sky outputs through the same solver. Scene occluders are always retained.", "02 Solve", "RS_Query") { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17404"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -154,8 +154,8 @@ namespace Raystrack.Grasshopper
         {
             p.AddTextParameter("Mode", "M", "matrix, row, pair or sky.", GH_ParamAccess.item, "matrix");
             p.AddTextParameter("Senders", "S", "Sender IDs; empty means all. row/pair require one ID.", GH_ParamAccess.list); p[1].Optional = true;
-            p.AddTextParameter("Receivers", "R", "Receiver IDs; empty means all. pair requires one ID. Does not remove blockers.", GH_ParamAccess.list); p[2].Optional = true;
-            p.AddTextParameter("Sky", "Sky", "none, merged or tregenza145. Sky mode defaults to merged when Mode is sky.", GH_ParamAccess.item, "none");
+            p.AddTextParameter("Receivers", "R", "Receiver IDs; empty means all, including self-viewing for nonplanar meshes. pair requires one ID and can use the same ID as Sender. Does not remove blockers.", GH_ParamAccess.list); p[2].Optional = true;
+            p.AddGenericParameter("Sky", "Sky", "Optional RS Sky object. Configure sky mode and labeled dome in RS Sky. Required when Mode is sky; other modes can include sky alongside scene receivers.", GH_ParamAccess.item); p[3].Optional = true;
             p.AddTextParameter("Sides", "Side", "both, front or back. Receiver sides are explicit channels.", GH_ParamAccess.item, "both");
         }
         /// <summary>Define documented snapshot/status/numeric output ports for this workflow step.</summary>
@@ -163,19 +163,19 @@ namespace Raystrack.Grasshopper
         /// <summary>Construct matrix, row, pair or sky selections without removing scene occluders.</summary>
         protected override void Evaluate(IGH_DataAccess da)
         {
-            string mode = Text(da, 0, "matrix").Trim().ToLowerInvariant(), sky = Text(da, 3, "none").Trim().ToLowerInvariant(), sides = Text(da, 4, "both").Trim().ToLowerInvariant();
+            string mode = Text(da, 0, "matrix").Trim().ToLowerInvariant(), sides = Text(da, 4, "both").Trim().ToLowerInvariant();
+            var sky = Data(da, 3, "sky", false);
             Require(new[] { "matrix", "row", "pair", "sky" }.Contains(mode), "Mode must be matrix, row, pair or sky.");
-            Require(new[] { "none", "merged", "tregenza145" }.Contains(sky), "Sky must be none, merged or tregenza145.");
             Require(new[] { "both", "front", "back" }.Contains(sides), "Sides must be both, front or back.");
             var senders = new List<string>(); var receivers = new List<string>(); da.GetDataList(1, senders); da.GetDataList(2, receivers);
             Require(senders.Distinct().Count() == senders.Count && receivers.Distinct().Count() == receivers.Count, "Sender and receiver IDs must be unique.");
             Require(senders.All(s => !string.IsNullOrWhiteSpace(s)) && receivers.All(s => !string.IsNullOrWhiteSpace(s)), "Sender and receiver IDs must be nonempty.");
             if (mode == "row" || mode == "pair") Require(senders.Count == 1, "row/pair requires one sender ID.");
             if (mode == "pair") Require(receivers.Count == 1, "pair requires one receiver ID.");
-            if (mode == "sky" && sky == "none") sky = "merged";
+            Require(mode != "sky" || sky != null, "Input 'Sky': connect RS Sky when Mode is sky. Choose merged or tregenza145 on RS Sky.");
             da.SetData(0, new SnapshotGoo(new JObject { { "kind", "query" }, { "senders", senders.Count == 0 ? null : new JArray(senders) },
                 { "receivers", receivers.Count == 0 ? null : new JArray(receivers) }, { "scene", mode != "sky" },
-                { "sky_mode", sky == "none" ? null : sky }, { "receiver_sides", sides == "both" ? new JArray("front", "back") : new JArray(sides) } }));
+                { "sky_mode", sky == null ? null : sky["mode"].DeepClone() }, { "receiver_sides", sides == "both" ? new JArray("front", "back") : new JArray(sides) } }));
         }
     }
 
@@ -183,7 +183,7 @@ namespace Raystrack.Grasshopper
     public sealed class SamplingComponent : RsComponent
     {
         /// <summary>Construct immutable cosine/area-pair sampling controls for RS Options.</summary>
-        public SamplingComponent() : base("Sampling", "Sampling", "Control the validated cosine-ray or CPU area-pair estimator. Separate sampling from convergence and execution settings.", "02 Solve", "RaystrackMatrixParams", GH_Exposure.secondary) { }
+        public SamplingComponent() : base("Sampling", "Sampling", "Control the validated cosine-ray or CPU area-pair estimator. Separate sampling from convergence and execution settings.", "02 Solve", "RS_Sampling", GH_Exposure.secondary) { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17405"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -195,7 +195,7 @@ namespace Raystrack.Grasshopper
             p.AddTextParameter("Mode", "M", "fair or adaptive ray allocation across senders.", GH_ParamAccess.item, "fair");
             p.AddTextParameter("Strategy", "S", "cosine (CPU/GPU) or area_pair (CPU pair queries only).", GH_ParamAccess.item, "cosine");
             p.AddIntegerParameter("Pair samples", "P", "Area-pair samples per replicate. Default 8192.", GH_ParamAccess.item, 8192);
-            p.AddBooleanParameter("Flip", "F", "Reverse emitting normals without changing receiver-side labels.", GH_ParamAccess.item, false);
+            p.AddBooleanParameter("Flip", "F", "Reverse emitting normals without changing receiver-side labels. Set true to trace the interior of a box with outward mesh normals; self-hits then appear on the back receiver side.", GH_ParamAccess.item, false);
         }
         /// <summary>Define documented snapshot/status/numeric output ports for this workflow step.</summary>
         protected override void RegisterOutputParams(GH_OutputParamManager p) { p.AddGenericParameter("Sampling", "S", "Sampling snapshot for RS Options.", GH_ParamAccess.item); }
@@ -218,7 +218,7 @@ namespace Raystrack.Grasshopper
     public sealed class AccuracyComponent : RsComponent
     {
         /// <summary>Construct convergence tolerances and replicate limits for RS Options.</summary>
-        public AccuracyComponent() : base("Accuracy", "Accuracy", "Set replicate limits and numerical convergence. Unknown uncertainty in a partial replicate remains unknown.", "02 Solve", "RaystrackSkyParams", GH_Exposure.secondary) { }
+        public AccuracyComponent() : base("Accuracy", "Accuracy", "Set replicate limits and numerical convergence. Unknown uncertainty in a partial replicate remains unknown.", "02 Solve", "RS_Accuracy", GH_Exposure.secondary) { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17406"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -250,7 +250,7 @@ namespace Raystrack.Grasshopper
     public sealed class OptionsComponent : RsComponent
     {
         /// <summary>Combine optional sampling/accuracy with bounded batches and explicit final reciprocity.</summary>
-        public OptionsComponent() : base("Options", "Options", "Combine sampling, convergence, bounded execution chunks and explicit reciprocity. Empty inputs use Python defaults.", "02 Solve", "RaystrackMatrixParams", GH_Exposure.secondary) { }
+        public OptionsComponent() : base("Options", "Options", "Combine sampling, convergence, bounded execution chunks and explicit reciprocity. Empty inputs use Python defaults.", "02 Solve", "RS_Options", GH_Exposure.secondary) { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17407"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -289,7 +289,7 @@ namespace Raystrack.Grasshopper
         /// <summary>Latest actionable failure shown in status and runtime error messages.</summary>
         private string fault;
         /// <summary>Execute and resume numerical work in the document worker while publishing progress and partial snapshots.</summary>
-        public SolveComponent() : base("Solve", "Solve", "Run in a separate Python process while Grasshopper stays interactive. Progress and partial results refresh automatically. Run is a rising trigger; no solve launches just by opening a saved graph.", "02 Solve", "RaystrackComputeVFMatrix") { }
+        public SolveComponent() : base("Solve", "Solve", "Run in a separate Python process while Grasshopper stays interactive. Progress and partial results refresh automatically. Run is a rising trigger; no solve launches just by opening a saved graph.", "02 Solve", "RS_Solve") { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17408"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -372,7 +372,7 @@ namespace Raystrack.Grasshopper
     public sealed class ResultTableComponent : RsComponent
     {
         /// <summary>Read sender rows and structured channels as value/error trees with explicit coverage.</summary>
-        public ResultTableComponent() : base("Result Table", "Table", "Read one row per sender and structured receiver channels. NaN means uncomputed/unknown; sampled zeros remain zero.", "03 Results", "RaystrackGetTable") { }
+        public ResultTableComponent() : base("Result Table", "Table", "Read one row per sender and structured receiver channels. NaN means uncomputed/unknown; sampled zeros remain zero.", "03 Results", "RS_Result_Table") { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17409"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -413,7 +413,7 @@ namespace Raystrack.Grasshopper
     public sealed class ResultValueComponent : RsComponent
     {
         /// <summary>Read one estimate/error by sender ID and structured receiver-side or sky-patch selection.</summary>
-        public ResultValueComponent() : base("Result Value", "Value", "Read a single structured channel without suffix parsing. Unknown entries and standard errors are NaN.", "03 Results", "RaystrackGetVF") { }
+        public ResultValueComponent() : base("Result Value", "Value", "Read a single structured channel without suffix parsing. Unknown entries and standard errors are NaN.", "03 Results", "RS_Result_Value") { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17410"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -455,7 +455,7 @@ namespace Raystrack.Grasshopper
     public sealed class InspectComponent : RsComponent
     {
         /// <summary>Show a concise data summary, usage description and optionally complete JSON in a Panel.</summary>
-        public InspectComponent() : base("Inspect", "Inspect", "Inspect a portable scene, options, query or result snapshot, including execution metadata and convergence provenance.", "03 Results", "RaystrackGetTable", GH_Exposure.secondary) { }
+        public InspectComponent() : base("Inspect", "Inspect", "Inspect a portable scene, options, query or result snapshot, including execution metadata and convergence provenance.", "03 Results", "RS_Inspect", GH_Exposure.secondary) { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17411"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -480,7 +480,7 @@ namespace Raystrack.Grasshopper
         /// <summary>Latest actionable failure shown in status and runtime error messages.</summary>
         private string fault;
         /// <summary>Write a new v2 scene/result folder asynchronously without overwriting existing data.</summary>
-        public SaveComponent() : base("Save", "Save", "Write a new version-2 .raystrack folder in the background. Existing folders are never overwritten. A saved true trigger does not write on reopen.", "04 Files", "RaystrackSaveVFMatrix") { }
+        public SaveComponent() : base("Save", "Save", "Write a new version-2 .raystrack folder in the background. Existing folders are never overwritten. A saved true trigger does not write on reopen.", "04 Files", "RS_Save") { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17412"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -522,7 +522,7 @@ namespace Raystrack.Grasshopper
         /// <summary>Latest actionable failure shown in status and runtime error messages.</summary>
         private string fault;
         /// <summary>Load v2 folders or isolated v1 imports asynchronously while preserving unknown statistics.</summary>
-        public LoadComponent() : base("Load", "Load", "Read a .raystrack folder in the background. Legacy v1 files import through the isolated adapter; unavailable coverage/errors remain unknown.", "04 Files", "RaystrackLoadVFMatrix") { }
+        public LoadComponent() : base("Load", "Load", "Read a .raystrack folder in the background. Legacy v1 files import through the isolated adapter; unavailable coverage/errors remain unknown.", "04 Files", "RS_Load") { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17413"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -567,7 +567,7 @@ namespace Raystrack.Grasshopper
         /// <summary>Latest actionable failure shown in status and runtime error messages.</summary>
         private string fault;
         /// <summary>Inspect bundled Python and local backend capabilities in the background on Refresh.</summary>
-        public RuntimeComponent() : base("Runtime", "Runtime", "Check the bundled Python worker and CPU/GPU availability without running a simulation. An explicit refresh keeps driver probing off the UI thread.", "00 Setup", "RaystrackInstaller") { }
+        public RuntimeComponent() : base("Runtime", "Runtime", "Check the bundled Python worker and CPU/GPU availability without running a simulation. An explicit refresh keeps driver probing off the UI thread.", "00 Setup", "RS_Runtime") { }
         /// <summary>Stable component identity, retained across development package updates and saved definitions.</summary>
         public override Guid ComponentGuid { get { return new Guid("a240573a-a62c-4ab8-960f-8a621fd17414"); } }
         /// <summary>Define input types, defaults and port help for this workflow step.</summary>
@@ -576,7 +576,7 @@ namespace Raystrack.Grasshopper
         protected override void RegisterOutputParams(GH_OutputParamManager p)
         {
             p.AddTextParameter("Python", "P", "Bundled Python executable and version.", GH_ParamAccess.item);
-            p.AddTextParameter("Devices", "D", "JSON device availability and failure reasons.", GH_ParamAccess.item);
+            p.AddTextParameter("Devices", "D", "Readable list of backend availability and each reported capability, version, adapter and failure reason. Available backend names can be used in RS Solve.", GH_ParamAccess.list);
             p.AddTextParameter("Status", "S", "idle, working, ready or failed.", GH_ParamAccess.item);
         }
         /// <summary>Inspect bundled Python and local backend capabilities in the background on Refresh.</summary>
@@ -586,7 +586,7 @@ namespace Raystrack.Grasshopper
             if (Rising(Boolean(da, 0))) { Require(pending == null, "Wait for the runtime check to finish."); fault = null; response = null; Begin("runtime", new JObject()); }
             string status = fault != null ? "failed" : pending != null ? "working" : response != null ? "ready" : "idle";
             if (fault != null) AddRuntimeMessage(GH_RuntimeMessageLevel.Error, fault);
-            if (response != null) { da.SetData(0, (string)response["python"] + "\nPython " + (string)response["python_version"] + " | Raystrack " + (string)response["version"]); da.SetData(1, response["devices"].ToString(Formatting.Indented)); }
+            if (response != null) { da.SetData(0, (string)response["python"] + "\nPython " + (string)response["python_version"] + " | Raystrack " + (string)response["version"]); da.SetDataList(1, DeviceDescriptions.Format(response["devices"] as JObject)); }
             da.SetData(2, status); Message = status;
         }
         /// <summary>Publish a component-scoped error and an explicit failed state where async status outputs are available.</summary>

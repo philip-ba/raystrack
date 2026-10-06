@@ -28,13 +28,13 @@ def validate_report(report):
     """Require actual host evidence rather than accepting a passed label alone."""
     assert report.get("phase") == "passed", "Real-host test did not pass"
     assert report.get("rhino") and report.get("assembly"), "Installed host identity is missing"
-    assert len(report.get("components", [])) == 14, "Installed component catalog is incomplete"
+    assert len(report.get("components", [])) == 15, "Installed component catalog is incomplete"
     assert report.get("active_heartbeats", 0) >= 2, "No UI heartbeat during background execution"
     live = report.get("live_ray_counts", [])
     assert len(set(live)) >= 2 and all(value > 0 for value in live), "No distinct live ray updates"
     assert max(report.get("result_rays", 0), report.get("cancelled_rays", 0)) >= max(live), "Final ray count is inconsistent"
     assert abs(report.get("pair_value", -1) - 0.1998248957) < 0.003, "Analytical check failed"
-    for proof in ("icons_and_tooltips", "ribbon_icon", "instance_transform", "save_load_preserved",
+    for proof in ("icons_and_tooltips", "ribbon_icon", "surface_transform", "to_brep_geometry", "sky_labels", "save_load_preserved",
                   "cancelled_partial", "runtime_multiplexing", "document_worker_stopped", "reopen_disarmed"):
         assert report.get(proof) is True, "Missing host evidence: " + proof
     assert report.get("owned_worker_pid", 0) > 0, "Owned worker was not observed"
@@ -234,7 +234,8 @@ def run_host():
             assert all(str(p.Description).strip() for p in component.Params.Output), component.Name
             names.append(str(component.Name))
             guids.append(str(component.ComponentGuid))
-        assert len(names) == 14, names
+        assert len(names) == 15, names
+        assert "RS Instance" not in names and "RS To Brep" in names and "RS Sky" in names
         assert len(set(guids)) == len(guids)
         report["components"] = sorted(names)
         report["icons_and_tooltips"] = True
@@ -242,7 +243,7 @@ def run_host():
         report["assembly_version"] = str(assembly_info.Version)
         assert assembly_info.Icon is not None and assembly_info.Icon.Width == 24 and assembly_info.Icon.Height == 24
         report["ribbon_icon"] = True
-        report["checks"].append("14 installed components have unique IDs, 24px icons and port descriptions")
+        report["checks"].append("15 installed components have unique IDs, 24px icons and port descriptions")
 
     def square(z, upward):
         """Create a unit square with explicit winding for the analytical plate fixture."""
@@ -261,10 +262,10 @@ def run_host():
 
     validate_catalog()
     node("a", "SurfaceComponent", 40, 70)
-    node("b", "InstanceComponent", 40, 250)
+    node("b", "SurfaceComponent", 40, 250)
     put("a", "Geometry", square(0, True))
     put("a", "ID", "A")
-    connect("a", "Surface", "b", "Surface")
+    put("b", "Geometry", square(0, True))
     rotation = Rhino.Geometry.Transform.Rotation(System.Math.PI, Rhino.Geometry.Vector3d.XAxis,
                                                 Rhino.Geometry.Point3d.Origin)
     transform = Rhino.Geometry.Transform.Translation(0, 1, 1) * rotation
@@ -273,6 +274,12 @@ def run_host():
     node("scene", "SceneComponent", 260, 140)
     connect("a", "Surface", "scene", "Surfaces")
     connect("b", "Surface", "scene", "Surfaces")
+    node("breps", "ToBrepComponent", 490, 60)
+    connect("scene", "Scene", "breps", "Data")
+    node("sky", "SkyComponent", 490, 710)
+    node("sky_query", "QueryComponent", 700, 710)
+    put("sky_query", "Mode", "sky")
+    connect("sky", "Sky", "sky_query", "Sky")
     node("query", "QueryComponent", 260, 360)
     put("query", "Mode", "pair")
     put("query", "Senders", ["A"])
@@ -323,18 +330,33 @@ def run_host():
         report["phase"] = phase
 
     def check_analytic():
-        """Verify instance placement and the facing-square estimate against its exact value."""
+        """Verify surface placement, native Breps, sky labels and the analytical pair factor."""
         prototype = payload("a", "Surface")
         instance = payload("b", "Surface")
-        assert prototype["mesh"] == instance["mesh"], "Instance changed the shared prototype mesh"
+        assert prototype["mesh"] == instance["mesh"], "Repeated surfaces changed their shared triangle geometry"
         bounds = output("b", "Surface").ClippingBox
         assert bounds.IsValid
         assert abs(bounds.Min.Z - 1) < 1e-6 and abs(bounds.Max.Z - 1) < 1e-6
         assert abs(bounds.Min.X) < 1e-6 and abs(bounds.Max.X - 1) < 1e-6
         assert abs(bounds.Min.Y) < 1e-6 and abs(bounds.Max.Y - 1) < 1e-6
-        report["instance_transform"] = True
-        report["instance_preview_bounds"] = str(bounds)
-        report["checks"].append("Instance shares its prototype mesh and previews the rigidly transformed upper plate")
+        report["surface_transform"] = True
+        report["surface_preview_bounds"] = str(bounds)
+        converted = list(parameter(nodes["breps"], "Breps", False).VolatileData.AllData(True))
+        assert len(converted) == 2 and all(b.Value.IsValid for b in converted)
+        assert converted[1].Value.GetBoundingBox(True).Min.DistanceTo(bounds.Min) < 1e-6
+        assert converted[1].Value.GetBoundingBox(True).Max.DistanceTo(bounds.Max) < 1e-6
+        report["to_brep_geometry"] = True
+        patches = list(parameter(nodes["sky"], "Patches", False).VolatileData.AllData(True))
+        labels = [str(v.Value) for v in parameter(nodes["sky"], "Labels", False).VolatileData.AllData(True)]
+        tags = list(parameter(nodes["sky"], "Tags", False).VolatileData.AllData(True))
+        assert len(patches) == len(labels) == len(tags) == 145
+        assert all(b.Value.IsValid for b in patches)
+        assert labels == ["Sky patch " + str(i) for i in range(145)]
+        assert [str(tag.Value.PlainText) for tag in tags] == [str(i) for i in range(145)]
+        assert payload("sky_query", "Query")["sky_mode"] == "tregenza145"
+        assert payload("sky_query", "Query")["scene"] is False
+        report["sky_labels"] = True
+        report["checks"].append("Surface transforms round-trip to world Breps, and 145 native sky patches carry aligned labels and text tags")
         value = float(text("value", "Value"))
         expected = 0.1998248957
         assert abs(value - expected) < 0.003, (value, expected)
@@ -447,7 +469,8 @@ def run_host():
                 assert "runtime" in python.lower() and "python.exe" in python.lower(), python
                 assert "cpu" in devices.lower(), devices
                 report["runtime_python"] = python
-                report["runtime_devices"] = json.loads(devices)
+                report["runtime_devices"] = [str(v.Value) for v in parameter(nodes["runtime"], "Devices", False).VolatileData.AllData(True)]
+                assert all("{" not in v for v in report["runtime_devices"])
                 report["runtime_multiplexing"] = True
                 report["checks"].append("Queued Runtime check allows live Status/Cancel IPC and completes after cancellation")
                 start_long_run()

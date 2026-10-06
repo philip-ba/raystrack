@@ -4,7 +4,7 @@
     <LangVersion>5</LangVersion>
     <AssemblyName>Raystrack.Components</AssemblyName>
     <RootNamespace>Raystrack.Grasshopper</RootNamespace>
-    <Version>2.0.0-dev.3</Version>
+    <Version>2.0.0</Version>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <RhinoSystemDir Condition="'$(RhinoSystemDir)' == ''">C:\Program Files\Rhino 8\System</RhinoSystemDir>
