@@ -3,14 +3,15 @@
   "version": "2.0.0",
   "platform": "Windows x64",
   "regression_suite": {
-    "passed": 254,
+    "passed": 256,
     "skipped": 23,
     "failed": 0,
-    "summary": "254 passed, 23 skipped in 122.26s (0:02:02)",
+    "summary": "256 passed, 23 skipped in 107.19s (0:01:47)",
     "native_gh_enabled": true
   },
   "installed_wheel": {
     "version": "2.0.0",
+    "numpy": "2.4.6",
     "isolated_imports": true,
     "cpu_self_viewing": true,
     "save_load": true
@@ -30,7 +31,7 @@
     "source_hashes_match": true
   },
   "source_sha256": {
-    "grasshopper/Bridge.cs": "39a032c07e8ef74fbe76a8bbe2ebe243db3801a162c768402961572d8644630e",
+    "grasshopper/Bridge.cs": "57372ba3c1f5717a2fb512f008226ce1d79de86bd5dce52100adbfa6e88add2d",
     "grasshopper/ComponentHelp.cs": "b105a1ea21c3b6886f2e56a6fee9c9b5d47a170a55b6af5957804870795e0a10",
     "grasshopper/Components.cs": "416a126d34e3a5426686c67d0edb5dec07171587d5599ce5e37406af9c5c5358",
     "grasshopper/DataDescriptions.cs": "35226b91aef18c234bbf21adf06f2d3d06e375bf21bbe9e582bb05bfab89d3b5",
@@ -54,7 +55,7 @@
     "src/raystrack/integrations/grasshopper/worker.py": "17d7ba1cd966aed58fe6a39827c8ae6c4d37cf8142afb867dadae13ae3f51e91",
     "src/raystrack/integrations/rhino.py": "55f21115d8aed7b7ef5143ea5281507f66b2e6519ffd613ad4a1ce6e1b296f8e",
     "src/raystrack/io/__init__.py": "3641bd018f58726e2ad56d5357d90dc60e8c14b9315e2fa7240a68764d39ab08",
-    "src/raystrack/io/_arrays.py": "3e70b44baa156757599b7fbc1da1aca7718e8b818e7c24e234c02f2dc5f6ea6f",
+    "src/raystrack/io/_arrays.py": "4cef1ceaa64286935b3582b90d07b4580e2f89ed57b18774fa28199059c4eea0",
     "src/raystrack/io/_v1.py": "fcc96d16f208116619934ba31755af41c19c83a0f599399dc722b2a094c5dd82",
     "src/raystrack/model/__init__.py": "72240c6e06c69220f093f0a6f3fb896eb6814efa068e3c3549c29b99b7d77d9a",
     "src/raystrack/model/geometry.py": "0da878d00ece545d7d899b7db88c06632b2b65a7d243cc29fb72ec1794865686",
@@ -99,5 +100,22 @@
     "grasshopper/icons/RS_To_Brep.png": "9c9823c1f90cc9f4de78410ea37ffe634e71490a0fe6efcfa031b086e057eab1"
   },
   "example_report": "grasshopper_boxes.json",
-  "scope": "Local full regression suite and native geometry contracts, actual installed wheel and packaged runtime. CUDA behavior was simulated; physical CUDA and Metal were not tested. Linux compatibility is gated by release CI before publication."
+  "scope": "Full Windows regression suite and native geometry contracts, actual installed NumPy 2 wheel, packaged CPU and physical Vulkan runtime, native boxes definition, and Linux CI on Python 3.9/3.12/3.13. CUDA was simulated; physical CUDA and Metal were not tested. No GUI validation claim.",
+  "assembly_version": "2.0.0.0",
+  "linux_ci": {
+    "phase": "passed",
+    "source_commit": "a3437af863ed4332b46a18162c37917661458ab9",
+    "url": "https://github.com/philip-ba/raystrack/actions/runs/37440305037",
+    "python_versions": [
+      "3.9",
+      "3.12",
+      "3.13"
+    ],
+    "tests_per_version": {
+      "passed": 254,
+      "skipped": 25
+    },
+    "wheel_metadata": "passed",
+    "sdist_metadata": "passed"
+  }
 }

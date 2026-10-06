@@ -1,9 +1,11 @@
 {
   "phase": "passed",
-  "validation": "native Grasshopper definition and installed dev.5 worker, headless Rhino core",
+  "version": "2.0.0",
+  "validation": "native Grasshopper definition and packaged 2.0.0 worker, headless Rhino core",
   "definition": "examples/grasshopper/boxes.gh",
   "definition_sha256": "61d289d893ed9ef5427390fe0fa06fdfd24269b4adbd67dc0c96a1557442d815",
-  "assembly_sha256": "5b76d8d216d7abdabb79b08c5c220b8148a836fff16c5560ffad98750aadd829",
+  "assembly_sha256": "f8f917e129610657942925a0912ce22786baedc37a026113c35e4e75e1b277b7",
+  "assembly_version": "2.0.0.0",
   "gui_opened": false,
   "results": [
     {
@@ -91,10 +93,21 @@
         1
       ],
       "cumulative_rays": 1945600,
+      "execution": {
+        "backend": "taichi",
+        "ray_batch_size": 65536,
+        "calibrated": false,
+        "reason": "tuning disabled",
+        "measurements": [],
+        "failures": {},
+        "warmup_rays": 0,
+        "elapsed_ms": 0.0
+      },
+      "status": "converged",
+      "converged": true,
       "message": [
         "Converged"
-      ],
-      "device": null
+      ]
     },
     {
       "component_id": "1fc5715d-cff8-477f-a3f1-5d68b86bc442",
@@ -289,11 +302,22 @@
         1
       ],
       "cumulative_rays": 4915200,
+      "execution": {
+        "backend": "taichi",
+        "ray_batch_size": 65536,
+        "calibrated": false,
+        "reason": "tuning disabled",
+        "measurements": [],
+        "failures": {},
+        "warmup_rays": 0,
+        "elapsed_ms": 0.0
+      },
+      "status": "max_iters",
+      "converged": false,
       "message": [
         "Maximum replicates reached"
-      ],
-      "device": null
+      ]
     }
   ],
-  "interpretation": "Exterior emission has zero self-factor for each convex box. Interior split faces have zero diagonal and roughly 0.2 to each other face, with row sum 1. Saved true Run inputs must be switched false then true on reopening."
+  "interpretation": "Exterior emission has zero self-factor for each convex box. Interior split faces have zero diagonal and roughly 0.2 to each other face, with row sum 1. The interior case reaches its configured maximum replicates before its strict 0.0001 tolerance. Saved true Run inputs must be switched false then true on reopening."
 }
