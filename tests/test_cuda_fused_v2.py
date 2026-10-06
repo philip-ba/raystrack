@@ -93,6 +93,10 @@ def test_workspace_keeps_gpu_ray_generation_and_one_compact_replicate_readback()
         f=np.asarray([[0,1,2],[0,2,3]],np.int32)
         meshes=[('source',v,f),('target',v+[0,0,1],f[:,::-1].copy())]
         specs=[((.1,.2),(.3,.4,.5,.6,.7),19,0),((.6,.5),(.4,.3,.2,.1,.9),13,7)]
+        # Strong scalar types make CUDA simulation follow native float64
+        # tuple arithmetic under both NumPy 1 and NumPy 2 promotion rules.
+        specs=[(tuple(np.float64(x) for x in grid),tuple(np.float64(x) for x in dims),count,offset)
+               for grid,dims,count,offset in specs]
         for acceleration,use_bvh in (('flat',False),('flat',True),('instanced',True)):
             prepared=PreparedSolver(meshes,acceleration=acceleration)
             scene=prepared.get_instanced_scene() if acceleration=='instanced' else prepared.get_scene(use_bvh=use_bvh)
@@ -100,10 +104,10 @@ def test_workspace_keeps_gpu_ray_generation_and_one_compact_replicate_readback()
             for async_,gpu_raygen in ((False,False),(True,True)):
                 workspace=_CudaWorkspace(async_)
                 options=dict(samples=2,rays=4,flip_faces=False,discrete=True,include_sky=True,
-                    surf_active=np.ones(2,np.uint8),gpu_raygen=gpu_raygen)
+                    surf_active=np.ones(2,np.uint8),gpu_raygen=gpu_raygen,emit_sid=-1)
                 actual=workspace.trace_many(prepared,0,scene,emitter,2,specs,**options)
                 cpu=_CpuWorkspace()
-                expected=cpu.trace_many(prepared,0,scene,emitter,2,specs,emit_sid=0,**options)
+                expected=cpu.trace_many(prepared,0,scene,emitter,2,specs,**options)
                 for got,want in zip(actual,expected):
                     for left,right in zip(got,want): np.testing.assert_array_equal(left,right)
                 summary=workspace.summary

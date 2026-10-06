@@ -18,6 +18,10 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Rhino.Geometry;
 
+[assembly: AssemblyVersion("2.0.0.0")]
+[assembly: AssemblyFileVersion("2.0.0.0")]
+[assembly: AssemblyInformationalVersion("2.0.0")]
+
 namespace Raystrack.Grasshopper
 {
     /// <summary>Reuse the original embedded PNG artwork at Grasshopper's 24-pixel display size.</summary>

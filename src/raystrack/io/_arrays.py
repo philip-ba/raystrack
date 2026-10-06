@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import numpy as np
 
@@ -33,7 +33,7 @@ def contained_path(root, relative):
     if not isinstance(relative, str) or not relative or "\\" in relative:
         raise ValueError("Invalid array path in store")
     path = Path(relative)
-    if path.is_absolute() or any(part in (".", "..") for part in path.parts):
+    if path.is_absolute() or PureWindowsPath(relative).drive or any(part in (".", "..") for part in path.parts):
         raise ValueError("Array path escapes the store")
     result = (root / path).resolve()
     try:

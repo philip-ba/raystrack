@@ -97,7 +97,7 @@ def test_failed_array_write_never_publishes_manifest(tmp_path):
         load(path)
 
 
-@pytest.mark.parametrize("relative", ["../outside.npy", "C:/outside.npy", "geometry/../../outside.npy", "..\\outside.npy"])
+@pytest.mark.parametrize("relative", ["../outside.npy", "C:/outside.npy", "C:outside.npy", "//server/share/outside.npy", "geometry/../../outside.npy", "..\\outside.npy"])
 def test_rejects_chunk_paths_outside_store(tmp_path, relative):
     scene, _ = scene_and_result()
     path = Path(save(tmp_path / "case", scene))
