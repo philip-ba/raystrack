@@ -7,6 +7,8 @@ from threading import RLock
 from types import MappingProxyType
 from typing import Callable, Iterable, Mapping, Optional, Tuple
 
+import numpy as np
+
 from .geometry import Mesh, Surface, rigid_transform
 
 
@@ -162,6 +164,41 @@ class Scene:
         with self.lock:
             current = self[surface_id]
             return self._replace(Surface(surface_id, current.mesh, current.label, matrix), geometry=True)
+
+    def update_transforms(self, transforms: Mapping[str, object]) -> int:
+        """Atomically apply absolute rigid poses with one geometry revision.
+
+        All IDs, matrices and transformed vertices are validated before observers
+        are notified. An empty or unchanged batch does not invalidate active work.
+        Local meshes and stable instance identities are retained.
+        """
+        if not isinstance(transforms, Mapping):
+            raise TypeError("transforms must be a mapping of surface IDs to matrices")
+        matrices = {key: rigid_transform(value) for key, value in transforms.items()}
+        state = self._state
+        changed = False
+        for key, matrix in matrices.items():
+            current = state.by_id[key]
+            Surface(key, current.mesh, current.label, matrix)
+            changed |= not np.array_equal(current.transform, matrix)
+        if not changed:
+            return state.revision
+        # Match single-object updates: invalidate active work before waiting for
+        # the scene execution lock. Revalidate meshes after acquiring the lock.
+        self._notify()
+        with self.lock:
+            state = self._state
+            replacements = {}
+            for key, matrix in matrices.items():
+                current = state.by_id[key]
+                replacement = Surface(key, current.mesh, current.label, matrix)
+                if not np.array_equal(current.transform, matrix):
+                    replacements[key] = replacement
+            if not replacements:
+                return state.revision
+            surfaces = tuple(replacements.get(old.surface_id, old) for old in state.surfaces)
+            self._state = self._make_state(surfaces, state.revision + 1, state.instances)
+            return self._state.revision
 
     def update_mesh(self, surface_id: str, mesh: Mesh) -> int:
         """Replace geometry and reset its local transform basis to identity."""

@@ -6,6 +6,36 @@ The [native solver guide](native-shortwave.md) describes the implemented API,
 its validation and the remaining performance and material work. The sections
 below retain the original implementation plan and preflight evidence.
 
+## File-driven moving district, 2026-11-11
+
+The [moving district workflow](dynamic-district.md) adds editable versioned
+projects, typed mesh assets, sensor/weather/held-pose CSV tracks, atomic transform
+batches, selected-window readers, exposure retention and strict block resume.
+Embree shortwave now shares prototype acceleration with true rigid instances;
+deformation refits where prototype topology is retained and topology changes
+rebuild. Vulkan RT retains its tested device/pipeline reuse with explicit flat
+geometry fallback. The new synthetic finite Klems rough transmission sheet is
+reciprocal and energy bounded; it does not implement microfacet glass.
+
+Next priorities, in dependency order:
+
+1. Convert verified production EPW/WEA/geometry into the documented interchange,
+   define district error budgets and validate hold/interpolation against finer
+   motion samples. Current synthetic annual execution is not annual accuracy.
+2. Add tested Vulkan shared BLAS/TLAS instancing and update flags, then compare
+   device build/transfer/dispatch/readback on realistic repeated geometry.
+   Keep host wall-clock profiles distinct from GPU timestamp measurements.
+3. Design reusable transport keys including geometry/material revisions,
+   sensor identities/frames, sample streams, sky basis and sun directions.
+   Prove motion and material invalidation before caching across solves. Native
+   per-call transfer reduction and optical CDF reuse are not persistent caches.
+4. Validate refractive sun connections, spatial focusing and angular Jacobians
+   with independent slab/prism references before enabling solid-glass DNI.
+   Preserve explicit capability errors and separate delta/finite densities.
+5. Add sensor-partition-stable random streams and measured total-memory
+   admission before large sensor grids; profile host transport before choosing
+   any GPU-resident kernel. Current time chunks and sensor limits are explicit.
+
 ## Glass and annual urban implementation, 2026-11-11
 
 The [current implementation and capability matrix](native-glass-urban-20261111.md)

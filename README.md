@@ -61,6 +61,9 @@ The [current glass and urban milestone](docs/native-glass-urban-20261111.md)
 adds limited solid-glass sky transport, a licensed measured-product BSDF,
 explicit independent wavelength intervals, and a restartable annual district
 workflow with scheduled scene edits and measured scale checks.
+The [file-driven moving district](docs/dynamic-district.md) accepts an editable
+JSON project with geometry/weather/BSDF assets, repeated pedestrian proxies,
+held shade poses, restartable numeric blocks and selected-window CSV export.
 
 ## Quick start
 

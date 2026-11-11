@@ -1,0 +1,1372 @@
+{
+  "baseline_commit": "b94576ce9201e915404643e88e0df5f1e3ddc438",
+  "branch": "dev/native-renderer-20261111",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.13.9",
+  "numpy": "2.4.6",
+  "native_abi": 4,
+  "original_native_sha256": "a25bf6632ffd6a536e9ca2f9e99064cefdae9088416842792af93d2fed8bef80",
+  "native_library_sha256": "2b3353a15131dd6016ae5e1f702b4cf2086d8d53886d77ef29e2e516cd65e338",
+  "original_and_project_bsdf_sha256": [
+    "5f398e08a81fecd57f9e566fa2a16f08bb0f2ca2a22fdba04d5d949c818b3336",
+    "5f398e08a81fecd57f9e566fa2a16f08bb0f2ca2a22fdba04d5d949c818b3336"
+  ],
+  "source_sha256": {
+    ".gitattributes": "adcc22dad376545bd5ee8c7ea4150d9290665501ce266f0d182dacf5e203408b",
+    "README.md": "b498b8eadfc68dd8469650538b89422b6e18199b5f43646b3b19741644749201",
+    "docs/district-optics.md": "c97fd5a0a5f7b0a9841833a7ba2c5a0daca9357e291c38abdd6bd858555ad73b",
+    "docs/dynamic-district.md": "3d89603115a51173ef71d9b2639de5b32620be114cb27d34fcef99884a014931",
+    "docs/native-embree.md": "79f5816369dd70a020bda220f6875b71544f51e5a06c62222f8fcd700e5553b4",
+    "docs/native-renderer-roadmap.md": "b369e9d9edbf9bbc593fb6df259c738732875953ee20fb38c5f06f2b3419c144",
+    "docs/project-schema.md": "f27f1c41093fac5a871038d212e3ccfd560b9d3de8fdebb34e023eecd9c70dfe",
+    "examples/dynamic_district/assets/2011-SA1.XML": "5f398e08a81fecd57f9e566fa2a16f08bb0f2ca2a22fdba04d5d949c818b3336",
+    "examples/dynamic_district/assets/ATTRIBUTION.md": "89d2bc66148c5cbd0bd8daa1b583b7e908642f22469a49935e369816341eb172",
+    "examples/dynamic_district/assets/canopy-faces.npy": "6803ea0dc470f89c1077724f6712b0de3f7ce422b7cc854e3e2b36f554ab13bc",
+    "examples/dynamic_district/assets/canopy-vertices.npy": "7c04480fce3b76be8c3b9326fb9f90ea90c51447420766c3b70916e11b800d7b",
+    "examples/dynamic_district/assets/facade-deformed-t0.npy": "e6dfa5c2bcefee7e6a8459d763d52b0ee1088b94ee845c1d89970bd1f10347df",
+    "examples/dynamic_district/assets/facade-faces.npy": "6803ea0dc470f89c1077724f6712b0de3f7ce422b7cc854e3e2b36f554ab13bc",
+    "examples/dynamic_district/assets/facade-vertices.npy": "ed2c1d6dfe9e7fd2a365b6b1abadfcb569921213d77ac64282a634e55e1e03db",
+    "examples/dynamic_district/assets/pavement-faces.npy": "6803ea0dc470f89c1077724f6712b0de3f7ce422b7cc854e3e2b36f554ab13bc",
+    "examples/dynamic_district/assets/pavement-vertices.npy": "d3337e6210f51015ad155190a49c3e0c0acca2773fc8662b9fdbc93aeb441e8d",
+    "examples/dynamic_district/assets/person-faces.npy": "3033cfccff4d58ef8be65a9f0cdde92eb0864fb19a0e37c46f0c298f489f6a0b",
+    "examples/dynamic_district/assets/person-vertices.npy": "938f7f396c65fa82b26cc75f19d9e3c0bc5681fd09a088dde1287a0a6d3cd06e",
+    "examples/dynamic_district/assets/slat-faces.npy": "6803ea0dc470f89c1077724f6712b0de3f7ce422b7cc854e3e2b36f554ab13bc",
+    "examples/dynamic_district/assets/slat-one-face.npy": "76a64fd10a2eeb0051b9b915f79152eadd73450c6065ee2458638ba5c5619408",
+    "examples/dynamic_district/assets/slat-topology-t0.npy": "ac8b5394a2ace14220c04ba97f39fe45191b72361887d62be48f6276977e82ff",
+    "examples/dynamic_district/assets/slat-vertices.npy": "e892763045db12902c5781f288d62ef4aa19eeb2dd4495a19bc901e760ca1064",
+    "examples/dynamic_district/poses.csv": "f6b9ce16531348419f450fe130f71427a01907de9561b8ecece0b6d8e61ae76c",
+    "examples/dynamic_district/project.json": "5329786fa8c005bcfc730d5c57a528579f63f9d3de2679b01f4b6881ff385163",
+    "examples/dynamic_district/sensors.csv": "e972cd69376dfbea83f6a99778e51bb4ab6a4d521b0c003500b49299e07152ce",
+    "native/api.cpp": "920ae3e64503ee9de0dde73b58e09719d81602f056b051338dee53476d21c425",
+    "native/embree/CMakeLists.txt": "bb1a7c38121e7564c77055193e49f4e77855611868b86b326b684890c2870241",
+    "native/embree/instances.cpp": "5126443cb78d121f239f6067cc34330356e5a301a0d10b1359a5dee54fc2ea51",
+    "native/include/raystrack/traversal.hpp": "c453ba3fdcff75f23aa91ee38de44d33adf83e9e5b23066e6564aa425b64c37d",
+    "src/raystrack/backends/native.py": "de2996d0e90da134456883b253b6d4ae4a303d078d9cfb63f8ed1ee7243edfe5",
+    "src/raystrack/model/scene.py": "11b687573766a316dee13d28462cf28b605ad8a00311cd6e20c2603ec20d050f",
+    "src/raystrack/project.py": "d786cf489f6c0eb0ceeeb9c80a6d032cc104d4e4e119a74848454aa3791d293b",
+    "src/raystrack/project_run.py": "9ada5d302662a59559428aca75d1004624f689b39897266aa81466ab0626eeb4",
+    "src/raystrack/project_store.py": "0650125f0195795567a2d695562afb394ed6f49a4812dc0fe397b09797ce2be6",
+    "src/raystrack/shortwave/klems.py": "ef4892f4e8b424287e10fa1969abadb75380a45dc578bec9a3ccfc23a7362405",
+    "src/raystrack/shortwave/solver.py": "33d3169feb01606ea6ca87f1f96534c82ec3c57ca5e5fbee4af30384b83257c8",
+    "tests/test_district_physics.py": "2ff018c86c735c5a5b43c6cc95d9932548bf5f57422922210b126468feff9e4a",
+    "tests/test_native_instances.py": "8080fa8821326a2dca13d9fa9fbc471bddd8078032a155ef2006878917e032f8",
+    "tests/test_project.py": "568a34a64374ecf1a461101f8a62e3fdf9f822b32fa0fc6cff8874809513d7a4",
+    "tests/test_project_run.py": "0e8693426bac9254df5b8fef45fea024ee483326293fea0289d2109684ffe036",
+    "validation/benchmark_dynamic_project.py": "a9fdae9a50f4f8fa0ca1ae8f099d9cb31a45624c40e495487ae63772ca050999",
+    "validation/benchmark_material_updates.py": "a7025fb217bfbc20ceba9dcf8e14e7c1514c06122880d62a11d4e8247c905b45",
+    "validation/benchmark_native_instances.py": "edd0edca6378f7fd8bf4f4f761cf8c231ad00369ceef85fe1bedb336cf253fa4",
+    "validation/benchmark_project_store.py": "4985a3f4e4539306aedf444dc0865f9a7e476aadb4bcacac66de7607368f3838",
+    "validation/create_district_project.py": "95e0565f8384baeac7eb44b11955a9a78b7783379aff2f06d2192dd13189ac7f",
+    "validation/district_physics.py": "c74cfbbd976792c389f5727334192f3eda922631f0d64b95e55f56c21dcb020c"
+  },
+  "input_interchange": {
+    "project_json_bytes": 18389,
+    "pose_csv_bytes": 24039,
+    "native_pose_equivalent_boundaries": 12,
+    "inline_generator_reproduces_original_sha256": true,
+    "timing_input": "--inline-states regenerates exact original timing project; current CSV native transforms identical",
+    "final_csv_runs": {
+      "embree": {
+        "intervals": 8760,
+        "sensors": 7,
+        "instances": 32,
+        "triangles": 243,
+        "solve_s": 2.5125527999844053,
+        "write_s": 4.676659300013853,
+        "process_peak_resident_bytes": 99237888,
+        "fresh_probes": [
+          {
+            "start": 0,
+            "probe_step": 108,
+            "forcing_w_m2": 503.68149957131766,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 720,
+            "probe_step": 828,
+            "forcing_w_m2": 513.0410460815013,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 1440,
+            "probe_step": 1452,
+            "forcing_w_m2": 503.59888124356195,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 2160,
+            "probe_step": 2172,
+            "forcing_w_m2": 686.8403419293733,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 2880,
+            "probe_step": 2964,
+            "forcing_w_m2": 724.7260855761326,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 3600,
+            "probe_step": 3684,
+            "forcing_w_m2": 638.8611170382463,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 4320,
+            "probe_step": 4331,
+            "forcing_w_m2": 517.0906555947089,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 5040,
+            "probe_step": 5051,
+            "forcing_w_m2": 680.9719220777882,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 5760,
+            "probe_step": 5796,
+            "forcing_w_m2": 709.7568934731753,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 6480,
+            "probe_step": 6540,
+            "forcing_w_m2": 592.3564985647531,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 7200,
+            "probe_step": 7211,
+            "forcing_w_m2": 418.4926521509588,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 7920,
+            "probe_step": 7931,
+            "forcing_w_m2": 463.4795417182556,
+            "max_abs_w_m2": 0.0
+          }
+        ]
+      },
+      "vulkan-rt": {
+        "intervals": 8760,
+        "sensors": 7,
+        "instances": 32,
+        "triangles": 243,
+        "solve_s": 11.872364600014407,
+        "write_s": 4.930112200006988,
+        "process_peak_resident_bytes": 314908672,
+        "fresh_probes": [
+          {
+            "start": 0,
+            "probe_step": 108,
+            "forcing_w_m2": 503.68149957131766,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 720,
+            "probe_step": 828,
+            "forcing_w_m2": 513.0410460815013,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 1440,
+            "probe_step": 1452,
+            "forcing_w_m2": 503.59888124356195,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 2160,
+            "probe_step": 2172,
+            "forcing_w_m2": 686.8403419293733,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 2880,
+            "probe_step": 2964,
+            "forcing_w_m2": 724.7260855761326,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 3600,
+            "probe_step": 3684,
+            "forcing_w_m2": 638.8611170382463,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 4320,
+            "probe_step": 4331,
+            "forcing_w_m2": 517.0906555947089,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 5040,
+            "probe_step": 5051,
+            "forcing_w_m2": 680.9719220777882,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 5760,
+            "probe_step": 5796,
+            "forcing_w_m2": 709.7568934731753,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 6480,
+            "probe_step": 6540,
+            "forcing_w_m2": 592.3564985647531,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 7200,
+            "probe_step": 7211,
+            "forcing_w_m2": 418.4926521509588,
+            "max_abs_w_m2": 0.0
+          },
+          {
+            "start": 7920,
+            "probe_step": 7931,
+            "forcing_w_m2": 463.4795417182556,
+            "max_abs_w_m2": 0.0
+          }
+        ]
+      }
+    }
+  },
+  "environment": {
+    "embree": "4.4.1 verified SDK header",
+    "vulkan_headers": "1.4.350",
+    "shaderc": "v2026.2",
+    "cmake": "4.3.2",
+    "radiance": "RADIANCE 5.4 2023-11-05 LBNL (5.4.4ee32974b1)",
+    "licenses_and_builds": "docs/native-embree.md and docs/native-vulkan.md; no dependency download or addition"
+  },
+  "review": {
+    "implementation_agents": 3,
+    "ownership": "native adapters / optical physics / project IO; lead integration",
+    "cross_review": "IO reviewed native; optics reviewed IO; native reviewed lead runner/fixture and optical model",
+    "corrected_findings": [
+      "Closed native diagnostic handle",
+      "Observer notification ordering",
+      "Tampered exposure aggregates",
+      "Tampered temporal metadata",
+      "UTC and overflow validation",
+      "Annual shade pose aliasing",
+      "Central Klems cell azimuth",
+      "Daylight fresh probes",
+      "Effective forcing and model source hashes",
+      "Resume revision replay"
+    ],
+    "unresolved_p1": 0
+  },
+  "preserved_user_settings_sha256": "0107620d0b15687c2d83201acc5ed242c994efc2f21a3822371b7456fda3b52c",
+  "tests": {
+    "baseline": {
+      "tests": 52,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 52,
+      "seconds": 5.136,
+      "evidence": "build/dynamic-district-20261111/baseline.xml"
+    },
+    "native_enabled_full": {
+      "tests": 571,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 26,
+      "passed": 545,
+      "seconds": 511.579,
+      "evidence": "build/dynamic-district-20261111/full-suite.xml"
+    },
+    "native_absent_v2_grasshopper": {
+      "tests": 171,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 24,
+      "passed": 147,
+      "seconds": 81.113,
+      "evidence": "build/dynamic-district-20261111/native-absent.xml"
+    },
+    "final_new_contracts_before_csv": {
+      "tests": 61,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 61,
+      "seconds": 76.134,
+      "evidence": "build/dynamic-district-20261111/final-stable.xml"
+    },
+    "final_csv_contracts": {
+      "tests": 71,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 71,
+      "seconds": 65.883,
+      "evidence": "build/dynamic-district-20261111/final-csv.xml"
+    }
+  },
+  "test_order_note": "Full suite preceded final replay/provenance hardening and CSV tracks. Final CSV/CLI project/storage/physics/instance contract run covers final source. Full years on both backends verify final CSV fixture. No numerical tolerance widened.",
+  "skips": [
+    "Opt in to licensed headless Rhino geometry with RAYSTRACK_TEST_NATIVE_GH=1",
+    "Optional Taichi runtime",
+    "optional Taichi dependency absent",
+    "optional Taichi dependency is absent",
+    "regression for hardware traversal of slender boundary facets"
+  ],
+  "ctest": {
+    "passed": 2,
+    "failed": 0,
+    "khronos_validation": true,
+    "evidence": "build/dynamic-district-20261111/ctest-validation.log"
+  },
+  "gates": {
+    "annual_cube": {
+      "intervals": 8760,
+      "passed": true,
+      "gates": 45,
+      "maximum_annual_relative_error": 0.013884166121410413,
+      "maximum_daylight_nrmse": 0.01715438952329419,
+      "report_sha256": "e362993347264aa87af510d451ad35b5256683e759f68c6a0efda3028af43ae1",
+      "provenance": "Hash-verified cached coefficients reconstructed, fresh primary and live rtrace spots; controlled neutral opaque scene."
+    },
+    "district_constituents": {
+      "passed": true,
+      "backends": 3,
+      "samples": 16384,
+      "replicates": 4,
+      "maximum_mixed_absolute_error_w_m2": 0.9200569238374356,
+      "tolerance": "5 replicate SE +0.15W/m2; Student-t(3)95% intervals; no annual district accuracy inference",
+      "evidence": "build/dynamic-district-20261111/physics-final.json"
+    },
+    "original_measured_solar": {
+      "passed": true,
+      "backend_side_groups": 6,
+      "maximum_directional_energy": 0.6986111366127287,
+      "evidence": "build/dynamic-district-20261111/measured-final.json",
+      "radiance_visible_equivalence": false
+    }
+  },
+  "timings": {
+    "conditions": "Fresh processes sequential, agents and test workloads idle; baseline/candidate order alternated. Unrelated active Python process observed and left untouched; system isolation not established.",
+    "instance_trials": {
+      "moving": {
+        "flat": {
+          "metrics": {
+            "preparation_ms": {
+              "median": 4.763299999467563,
+              "range": [
+                4.559600001812214,
+                5.526400000235299
+              ]
+            },
+            "create_ms": {
+              "median": 60.55380000179866,
+              "range": [
+                59.33709999953862,
+                249.59210000088206
+              ]
+            },
+            "cold_solve_ms": {
+              "median": 3.6229999968782067,
+              "range": [
+                3.3015000008163042,
+                3.981400001066504
+              ]
+            },
+            "peak_host_working_set_bytes": {
+              "median": 137850880,
+              "range": [
+                137691136,
+                138448896
+              ]
+            },
+            "stationary_trace_median_ms": {
+              "median": 30.257499998697313,
+              "range": [
+                27.95469999909983,
+                32.38039999996545
+              ]
+            },
+            "scene_edit_ms": {
+              "median": 55.59429999993881,
+              "range": [
+                55.08420000114711,
+                60.43169999975362
+              ]
+            },
+            "geometry_pack_ms": {
+              "median": 4.209500002616551,
+              "range": [
+                4.199399998469744,
+                4.4471999972302
+              ]
+            },
+            "native_commit_ms": {
+              "median": 2.7007999997294974,
+              "range": [
+                2.635500000906177,
+                2.9222999983176123
+              ]
+            },
+            "moved_solve_ms": {
+              "median": 4.231399998388952,
+              "range": [
+                4.134700000577141,
+                4.408600001625018
+              ]
+            },
+            "moved_trace_ms": {
+              "median": 30.806599999777973,
+              "range": [
+                30.11289999994915,
+                31.408199996803887
+              ]
+            },
+            "fresh_rebuild_ms": {
+              "median": 7.982800001627766,
+              "range": [
+                7.059700001263991,
+                8.93980000182637
+              ]
+            },
+            "warm_solve_ms": {
+              "median": 3.1693000019004103,
+              "range": [
+                2.9238000024633948,
+                3.735999998752959
+              ]
+            }
+          },
+          "instances": 257,
+          "world_triangles": 163840,
+          "unique_triangles": 33280,
+          "rays": 65536,
+          "sensors": 32,
+          "samples": 256,
+          "median_rays_per_second": 2165942.3284415947,
+          "instance_statistics": [
+            null,
+            null,
+            null
+          ],
+          "output_sha256": [
+            "89ed5f20de2689b28f42538f13b3e7967ff7b0add96453df7d2a974320da83fc"
+          ],
+          "files": [
+            "build/dynamic-district-20261111/timing/moving-flat-1.json",
+            "build/dynamic-district-20261111/timing/moving-flat-2.json",
+            "build/dynamic-district-20261111/timing/moving-flat-3.json"
+          ]
+        },
+        "shared": {
+          "metrics": {
+            "preparation_ms": {
+              "median": 0.0039000005926936865,
+              "range": [
+                0.0036000019463244826,
+                0.00419999923906289
+              ]
+            },
+            "create_ms": {
+              "median": 54.47240000285092,
+              "range": [
+                49.86990000179503,
+                57.01970000154688
+              ]
+            },
+            "cold_solve_ms": {
+              "median": 2.0908000005874783,
+              "range": [
+                1.9007000009878539,
+                2.2208999980648514
+              ]
+            },
+            "peak_host_working_set_bytes": {
+              "median": 101875712,
+              "range": [
+                101531648,
+                102014976
+              ]
+            },
+            "stationary_trace_median_ms": {
+              "median": 9.944299999915529,
+              "range": [
+                9.694099997432204,
+                10.398599999462022
+              ]
+            },
+            "scene_edit_ms": {
+              "median": 55.97900000066147,
+              "range": [
+                52.516099996864796,
+                59.76659999942058
+              ]
+            },
+            "geometry_pack_ms": {
+              "median": 0.0026000016077887267,
+              "range": [
+                0.0022999993234407157,
+                0.0026999987312592566
+              ]
+            },
+            "native_commit_ms": {
+              "median": 1.1783000009017996,
+              "range": [
+                1.119799999287352,
+                1.1842000021715648
+              ]
+            },
+            "moved_solve_ms": {
+              "median": 2.2481999985757284,
+              "range": [
+                2.2028999992471654,
+                2.3489000013796613
+              ]
+            },
+            "moved_trace_ms": {
+              "median": 10.167399999772897,
+              "range": [
+                9.771299999556504,
+                10.263000000122702
+              ]
+            },
+            "fresh_rebuild_ms": {
+              "median": 3.971799997088965,
+              "range": [
+                3.6944999992556404,
+                4.2661000006773975
+              ]
+            },
+            "warm_solve_ms": {
+              "median": 1.9173000000591855,
+              "range": [
+                1.872900000307709,
+                1.9537999978638254
+              ]
+            }
+          },
+          "instances": 257,
+          "world_triangles": 163840,
+          "unique_triangles": 33280,
+          "rays": 65536,
+          "sensors": 32,
+          "samples": 256,
+          "median_rays_per_second": 6590308.015703135,
+          "instance_statistics": [
+            {
+              "prototype_builds": 2,
+              "prototype_refits": 0,
+              "transform_commits": 1280,
+              "scene_commits": 6
+            },
+            {
+              "prototype_builds": 2,
+              "prototype_refits": 0,
+              "transform_commits": 1280,
+              "scene_commits": 6
+            },
+            {
+              "prototype_builds": 2,
+              "prototype_refits": 0,
+              "transform_commits": 1280,
+              "scene_commits": 6
+            }
+          ],
+          "output_sha256": [
+            "89ed5f20de2689b28f42538f13b3e7967ff7b0add96453df7d2a974320da83fc"
+          ],
+          "files": [
+            "build/dynamic-district-20261111/timing/moving-shared-1.json",
+            "build/dynamic-district-20261111/timing/moving-shared-2.json",
+            "build/dynamic-district-20261111/timing/moving-shared-3.json"
+          ]
+        }
+      },
+      "static": {
+        "flat": {
+          "metrics": {
+            "preparation_ms": {
+              "median": 3.38470000133384,
+              "range": [
+                3.3671000019239727,
+                3.448300001764437
+              ]
+            },
+            "create_ms": {
+              "median": 59.51980000099866,
+              "range": [
+                58.443699999770615,
+                63.27720000263071
+              ]
+            },
+            "cold_solve_ms": {
+              "median": 1.8788999987009447,
+              "range": [
+                1.8103000002156477,
+                2.004300000407966
+              ]
+            },
+            "peak_host_working_set_bytes": {
+              "median": 124760064,
+              "range": [
+                124678144,
+                124923904
+              ]
+            },
+            "stationary_trace_median_ms": {
+              "median": 7.817900001100497,
+              "range": [
+                7.765099999232916,
+                8.212699998694006
+              ]
+            },
+            "scene_edit_ms": {
+              "median": 59.05480000001262,
+              "range": [
+                54.16319999858388,
+                62.00560000070254
+              ]
+            },
+            "geometry_pack_ms": {
+              "median": 3.257200001826277,
+              "range": [
+                3.245799998694565,
+                3.3549999971000943
+              ]
+            },
+            "native_commit_ms": {
+              "median": 1.7533000027469825,
+              "range": [
+                1.7403000019839965,
+                1.8560999997134786
+              ]
+            },
+            "moved_solve_ms": {
+              "median": 2.1035999998275656,
+              "range": [
+                2.0908000005874783,
+                2.1808999990753364
+              ]
+            },
+            "moved_trace_ms": {
+              "median": 8.43929999973625,
+              "range": [
+                7.999000001291279,
+                8.809999999357387
+              ]
+            },
+            "fresh_rebuild_ms": {
+              "median": 7.636799997271737,
+              "range": [
+                7.421900001645554,
+                8.143799997924361
+              ]
+            },
+            "warm_solve_ms": {
+              "median": 1.7060999998648185,
+              "range": [
+                1.6423000015493017,
+                1.839500000642147
+              ]
+            }
+          },
+          "instances": 257,
+          "world_triangles": 131584,
+          "unique_triangles": 131074,
+          "rays": 65536,
+          "sensors": 32,
+          "samples": 256,
+          "median_rays_per_second": 8382813.797922042,
+          "instance_statistics": [
+            null,
+            null,
+            null
+          ],
+          "output_sha256": [
+            "89ed5f20de2689b28f42538f13b3e7967ff7b0add96453df7d2a974320da83fc"
+          ],
+          "files": [
+            "build/dynamic-district-20261111/timing/static-flat-1.json",
+            "build/dynamic-district-20261111/timing/static-flat-2.json",
+            "build/dynamic-district-20261111/timing/static-flat-3.json"
+          ]
+        },
+        "shared": {
+          "metrics": {
+            "preparation_ms": {
+              "median": 0.0038999969547148794,
+              "range": [
+                0.0037999998312443495,
+                0.004300000000512227
+              ]
+            },
+            "create_ms": {
+              "median": 55.42940000304952,
+              "range": [
+                54.85260000205017,
+                61.27750000086962
+              ]
+            },
+            "cold_solve_ms": {
+              "median": 1.755999997840263,
+              "range": [
+                1.6883000025700312,
+                1.7852999990282115
+              ]
+            },
+            "peak_host_working_set_bytes": {
+              "median": 128991232,
+              "range": [
+                128565248,
+                129363968
+              ]
+            },
+            "stationary_trace_median_ms": {
+              "median": 7.888600001024315,
+              "range": [
+                7.846199998311931,
+                7.9320999975607265
+              ]
+            },
+            "scene_edit_ms": {
+              "median": 57.01509999926202,
+              "range": [
+                51.79380000117817,
+                60.98090000159573
+              ]
+            },
+            "geometry_pack_ms": {
+              "median": 0.0025000008463393897,
+              "range": [
+                0.0024000000848900527,
+                0.0025999979698099196
+              ]
+            },
+            "native_commit_ms": {
+              "median": 1.586399997904664,
+              "range": [
+                1.5382999990833923,
+                1.6335000000253785
+              ]
+            },
+            "moved_solve_ms": {
+              "median": 2.144800000678515,
+              "range": [
+                1.9776999979512766,
+                2.1716999981435947
+              ]
+            },
+            "moved_trace_ms": {
+              "median": 8.669599999848288,
+              "range": [
+                7.986100001289742,
+                8.674700002302416
+              ]
+            },
+            "fresh_rebuild_ms": {
+              "median": 7.391800001641968,
+              "range": [
+                6.697500000882428,
+                7.87549999949988
+              ]
+            },
+            "warm_solve_ms": {
+              "median": 1.8228000008093659,
+              "range": [
+                1.574800000526011,
+                1.8546000028436538
+              ]
+            }
+          },
+          "instances": 257,
+          "world_triangles": 131584,
+          "unique_triangles": 131074,
+          "rays": 65536,
+          "sensors": 32,
+          "samples": 256,
+          "median_rays_per_second": 8307684.505677853,
+          "instance_statistics": [
+            {
+              "prototype_builds": 2,
+              "prototype_refits": 0,
+              "transform_commits": 1280,
+              "scene_commits": 6
+            },
+            {
+              "prototype_builds": 2,
+              "prototype_refits": 0,
+              "transform_commits": 1280,
+              "scene_commits": 6
+            },
+            {
+              "prototype_builds": 2,
+              "prototype_refits": 0,
+              "transform_commits": 1280,
+              "scene_commits": 6
+            }
+          ],
+          "output_sha256": [
+            "89ed5f20de2689b28f42538f13b3e7967ff7b0add96453df7d2a974320da83fc"
+          ],
+          "files": [
+            "build/dynamic-district-20261111/timing/static-shared-1.json",
+            "build/dynamic-district-20261111/timing/static-shared-2.json",
+            "build/dynamic-district-20261111/timing/static-shared-3.json"
+          ]
+        }
+      }
+    },
+    "material_trials": {
+      "baseline": {
+        "cold_s_median": 0.1044930000025488,
+        "edit_s_median": 1.2799999240087345e-05,
+        "solve_s_median": 0.004363500000181375,
+        "fresh_build_and_solve_s_median": 0.00963680000131717,
+        "fresh_and_geometry_reuse_checks": 15
+      },
+      "candidate": {
+        "cold_s_median": 0.09453990000110934,
+        "edit_s_median": 1.089999932446517e-05,
+        "solve_s_median": 0.004262500002369052,
+        "fresh_build_and_solve_s_median": 0.008097400001133792,
+        "fresh_and_geometry_reuse_checks": 15
+      },
+      "vulkan": {
+        "cold_s_median": 3.742621000001236,
+        "edit_s_median": 1.4400000509340316e-05,
+        "solve_s_median": 0.016114599999127677,
+        "fresh_build_and_solve_s_median": 3.8028417999994417,
+        "fresh_and_geometry_reuse_checks": 15
+      }
+    },
+    "annual": {
+      "embree": {
+        "trials": 3,
+        "intervals": 8760,
+        "sensors": 7,
+        "instances": 32,
+        "initial_triangles": 244,
+        "final_triangles": 243,
+        "initial_prototypes": 5,
+        "final_prototypes": 7,
+        "samples": 64,
+        "replicates": 2,
+        "bounces": 3,
+        "measurements": {
+          "solve_s": {
+            "median": 1.7080082000029506,
+            "range": [
+              1.6630794999982754,
+              1.9869815999700222
+            ]
+          },
+          "write_s": {
+            "median": 3.5413299000138068,
+            "range": [
+              3.5143394999977318,
+              4.396132399979251
+            ]
+          },
+          "edit_s": {
+            "median": 0.11934659999678843,
+            "range": [
+              0.09562169998389436,
+              0.12643520001074648
+            ]
+          },
+          "cold_block_s": {
+            "median": 0.08571630000005825,
+            "range": [
+              0.0817551000000094,
+              0.20136750000165193
+            ]
+          },
+          "process_peak_resident_bytes": {
+            "median": 99000320,
+            "range": [
+              98250752,
+              100818944
+            ]
+          },
+          "selected_read_s": {
+            "median": 0.011489000000437954,
+            "range": [
+              0.006998499997280305,
+              0.013387200000579469
+            ]
+          },
+          "selected_export_s": {
+            "median": 0.009962299998733215,
+            "range": [
+              0.00865690000136965,
+              0.01370150000002468
+            ]
+          },
+          "bytes_on_disk": {
+            "median": 12063724,
+            "range": [
+              12063719,
+              12065312
+            ]
+          }
+        },
+        "fresh_probes": 12,
+        "fresh_probe_max_abs_w_m2": 0.0,
+        "minimum_probe_forcing_w_m2": 418.4926521509588,
+        "open_sun_max_abs_w_m2": 1.875864074918354e-05,
+        "open_sky_max_abs_w_m2": 8.526512829121202e-14,
+        "selected_values_bytes": 128,
+        "maximum_result_array_bytes": 112896,
+        "files": [
+          "build/dynamic-district-20261111/annual-embree-1/benchmark.json",
+          "build/dynamic-district-20261111/annual-embree-2/benchmark.json",
+          "build/dynamic-district-20261111/annual-embree-3/benchmark.json"
+        ]
+      },
+      "vulkan-rt": {
+        "trials": 3,
+        "intervals": 8760,
+        "sensors": 7,
+        "instances": 32,
+        "initial_triangles": 244,
+        "final_triangles": 243,
+        "initial_prototypes": 5,
+        "final_prototypes": 7,
+        "samples": 64,
+        "replicates": 2,
+        "bounces": 3,
+        "measurements": {
+          "solve_s": {
+            "median": 6.846868600005109,
+            "range": [
+              6.5213250999986485,
+              7.2508869000012055
+            ]
+          },
+          "write_s": {
+            "median": 3.821330000017042,
+            "range": [
+              3.7839889000133553,
+              3.832153500025015
+            ]
+          },
+          "edit_s": {
+            "median": 0.1264870999912091,
+            "range": [
+              0.11887620000925381,
+              0.1451366000001144
+            ]
+          },
+          "cold_block_s": {
+            "median": 2.5881162000005133,
+            "range": [
+              2.269339200000104,
+              2.7235316000005696
+            ]
+          },
+          "process_peak_resident_bytes": {
+            "median": 260714496,
+            "range": [
+              241733632,
+              318947328
+            ]
+          },
+          "selected_read_s": {
+            "median": 0.007192000000941334,
+            "range": [
+              0.006751999997504754,
+              0.009757100000570063
+            ]
+          },
+          "selected_export_s": {
+            "median": 0.008095999997749459,
+            "range": [
+              0.006959800000913674,
+              0.013263800003187498
+            ]
+          },
+          "bytes_on_disk": {
+            "median": 12062623,
+            "range": [
+              12062614,
+              12064214
+            ]
+          }
+        },
+        "fresh_probes": 12,
+        "fresh_probe_max_abs_w_m2": 0.0,
+        "minimum_probe_forcing_w_m2": 418.4926521509588,
+        "open_sun_max_abs_w_m2": 1.875864074918354e-05,
+        "open_sky_max_abs_w_m2": 8.526512829121202e-14,
+        "selected_values_bytes": 128,
+        "maximum_result_array_bytes": 112896,
+        "files": [
+          "build/dynamic-district-20261111/annual-vulkan-rt-1/benchmark.json",
+          "build/dynamic-district-20261111/annual-vulkan-rt-2/benchmark.json",
+          "build/dynamic-district-20261111/annual-vulkan-rt-3/benchmark.json"
+        ]
+      },
+      "old_flat_embree": {
+        "trials": 3,
+        "measurements": {
+          "solve_s": {
+            "median": 1.6145482999854721,
+            "range": [
+              1.5216442000128154,
+              2.0584321999886015
+            ]
+          },
+          "write_s": {
+            "median": 3.6071709000098053,
+            "range": [
+              3.373323999996501,
+              4.116330200009543
+            ]
+          },
+          "edit_s": {
+            "median": 0.09290970001529786,
+            "range": [
+              0.09236029999010498,
+              0.13466359998710686
+            ]
+          },
+          "cold_block_s": {
+            "median": 0.08233299999847077,
+            "range": [
+              0.07711360000030254,
+              0.08379269999932148
+            ]
+          },
+          "process_peak_resident_bytes": {
+            "median": 99164160,
+            "range": [
+              99098624,
+              99274752
+            ]
+          }
+        },
+        "note": "Small-fixture annual solve trial ranges overlap; no end-to-end annual speedup established."
+      }
+    },
+    "storage": {
+      "npy": {
+        "trials": 3,
+        "measurements": {
+          "write_seconds": {
+            "median": 0.4903891999965708,
+            "range": [
+              0.48161710000567837,
+              0.5917743000027258
+            ]
+          },
+          "verified_selected_read_seconds": {
+            "median": 0.008797800001048017,
+            "range": [
+              0.008358900002349401,
+              0.009190500000840984
+            ]
+          },
+          "unchecked_selected_read_seconds": {
+            "median": 0.003981099998782156,
+            "range": [
+              0.003421699999307748,
+              0.004756199999974342
+            ]
+          },
+          "process_peak_bytes": {
+            "median": 77643776,
+            "range": [
+              77422592,
+              77733888
+            ]
+          },
+          "stored_bytes": {
+            "median": 8497607,
+            "range": [
+              8497607,
+              8497607
+            ]
+          }
+        },
+        "intervals": 168,
+        "sensors": 256,
+        "block_steps": 24,
+        "numeric_values_and_errors_bytes": 8257536,
+        "selected_values_bytes": 288
+      },
+      "npz": {
+        "trials": 3,
+        "measurements": {
+          "write_seconds": {
+            "median": 0.5930607999980566,
+            "range": [
+              0.5528609000029974,
+              0.6486005000006116
+            ]
+          },
+          "verified_selected_read_seconds": {
+            "median": 0.011184200000570854,
+            "range": [
+              0.0092134000005899,
+              0.011786099999881117
+            ]
+          },
+          "unchecked_selected_read_seconds": {
+            "median": 0.007359100000030594,
+            "range": [
+              0.006465900001785485,
+              0.008617500003310852
+            ]
+          },
+          "process_peak_bytes": {
+            "median": 77643776,
+            "range": [
+              77500416,
+              77959168
+            ]
+          },
+          "stored_bytes": {
+            "median": 6073532,
+            "range": [
+              6073532,
+              6073532
+            ]
+          }
+        },
+        "intervals": 168,
+        "sensors": 256,
+        "block_steps": 24,
+        "numeric_values_and_errors_bytes": 8257536,
+        "selected_values_bytes": 288
+      }
+    },
+    "vulkan_profile": {
+      "device": "AMD Radeon(TM) 860M Graphics",
+      "api_version": 4211047,
+      "driver_version": 8389024,
+      "vendor_id": 4098,
+      "device_id": 4372,
+      "context_ms": 173.184,
+      "pipeline_ms": 578.001,
+      "geometry_pack_ms": 5.5778,
+      "geometry_build_ms": 3201.52,
+      "upload_pack_ms": 0.7164,
+      "dispatch_wait_ms": 185.368,
+      "readback_decode_ms": 120.746,
+      "updates": 96,
+      "dispatches": 955,
+      "rays": 191540,
+      "solve_ms": 4835.315999989689,
+      "host_orchestration_transport_and_uninstrumented_residual_ms": 570.2027999896891,
+      "timing_kind": "Host wall-clock phases; not GPU timestamps or separately measured PCIe transfer; unified mapped memory."
+    },
+    "gpu_timestamps_or_device_memory_measured": false
+  },
+  "execution": {
+    "busy": {
+      "embree": {
+        "intervals": 96,
+        "sensors": 7,
+        "instances": 32,
+        "prototypes": 7,
+        "triangles": 243,
+        "solve_s": 0.31211740000071586,
+        "write_s": 5.831799999985378,
+        "edit_s": 1.1573126000075717,
+        "process_peak_resident_bytes": 97386496,
+        "bytes_on_disk": 364357,
+        "selected_read_s": 0.03754259999914211,
+        "analytic_open_sun_max_abs_w_m2": 1.530028322349608e-05,
+        "raw_report": "build/dynamic-district-20261111/busy-embree/benchmark.json"
+      },
+      "vulkan-rt": {
+        "intervals": 96,
+        "sensors": 7,
+        "instances": 32,
+        "prototypes": 7,
+        "triangles": 243,
+        "solve_s": 4.50101210000139,
+        "write_s": 4.510632400008035,
+        "edit_s": 1.1396241999937047,
+        "process_peak_resident_bytes": 249253888,
+        "bytes_on_disk": 350550,
+        "selected_read_s": 0.03369350000139093,
+        "analytic_open_sun_max_abs_w_m2": 1.530028322349608e-05,
+        "raw_report": "build/dynamic-district-20261111/busy-vulkan-rt/benchmark.json"
+      }
+    },
+    "scale": {
+      "embree": {
+        "intervals": 96,
+        "sensors": 112,
+        "instances": 512,
+        "prototypes": 37,
+        "triangles": 3888,
+        "solve_s": 2.5454465999973763,
+        "write_s": 7.6442342000118515,
+        "edit_s": 15.072324699987803,
+        "process_peak_resident_bytes": 152227840,
+        "bytes_on_disk": 2380124,
+        "selected_read_s": 0.031260700001439545,
+        "analytic_open_sun_max_abs_w_m2": 1.530028322349608e-05,
+        "raw_report": "build/dynamic-district-20261111/scale-embree/benchmark.json"
+      },
+      "vulkan-rt": {
+        "intervals": 96,
+        "sensors": 112,
+        "instances": 512,
+        "prototypes": 37,
+        "triangles": 3888,
+        "solve_s": 10.4567352999984,
+        "write_s": 7.6972839000300155,
+        "edit_s": 14.680328200003714,
+        "process_peak_resident_bytes": 306860032,
+        "bytes_on_disk": 2378106,
+        "selected_read_s": 0.03804830000080983,
+        "analytic_open_sun_max_abs_w_m2": 1.530028322349608e-05,
+        "raw_report": "build/dynamic-district-20261111/scale-vulkan-rt/benchmark.json"
+      }
+    },
+    "final_cli": {
+      "intervals": 8760,
+      "complete": true,
+      "partial_intervals": 2856,
+      "export": "build/dynamic-district-20261111/csv-selected-final.csv",
+      "final_effective_forcing_sha256": "5d4d5d7650e7c355ca1330a88e26bbfdb0d84f025c8b5827fa619b4e70f62511"
+    },
+    "exposure_only": {
+      "intervals": 8760,
+      "stored_bytes": 375411,
+      "peak_host_bytes": 100491264,
+      "hourly_integral_max_abs_wh_m2": 0.0
+    }
+  },
+  "comparisons": {
+    "annual_old_flat_vs_shared": {
+      "component_max_abs_w_m2": [
+        0.0,
+        0.0,
+        7.381449776744375e-06,
+        1.0329796751307185e-07
+      ],
+      "exposure_max_abs_wh_m2": 0.0005999025015626103,
+      "worst": {
+        "absolute_error_w_m2": 7.381449776744375e-06,
+        "summed_replicate_standard_error_w_m2": 13.932842021114293,
+        "first_value_w_m2": 52.614569348896765,
+        "second_value_w_m2": 52.61456196744699,
+        "interval": 2144,
+        "sensor": "t0/person",
+        "component": "reflected"
+      },
+      "accuracy_inference": false
+    },
+    "annual_embree_vs_vulkan": {
+      "component_max_abs_w_m2": [
+        0.0,
+        0.0,
+        0.28924936184258243,
+        1.0329796751307185e-07
+      ],
+      "exposure_max_abs_wh_m2": 0.2892256482155062,
+      "worst": {
+        "absolute_error_w_m2": 0.28924936184258243,
+        "summed_replicate_standard_error_w_m2": 14.953751665855968,
+        "first_value_w_m2": 32.0209251747292,
+        "second_value_w_m2": 31.731675812886618,
+        "interval": 3751,
+        "sensor": "t0/shade",
+        "component": "reflected"
+      },
+      "accuracy_inference": false
+    },
+    "busy_embree_vs_vulkan": {
+      "component_max_abs_w_m2": [
+        0.0,
+        0.0,
+        3.843954470283961e-06,
+        2.3877518628978578e-08
+      ],
+      "exposure_max_abs_wh_m2": 2.018119175772881e-06,
+      "worst": {
+        "absolute_error_w_m2": 3.843954470283961e-06,
+        "summed_replicate_standard_error_w_m2": 12.831693833885069,
+        "first_value_w_m2": 26.778394027683692,
+        "second_value_w_m2": 26.778390183729222,
+        "interval": 27,
+        "sensor": "t0/shade",
+        "component": "reflected"
+      },
+      "accuracy_inference": false
+    },
+    "csv_vs_inline_embree": {
+      "component_max_abs_w_m2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "exposure_max_abs_wh_m2": 0.0,
+      "worst": {
+        "absolute_error_w_m2": 0.0,
+        "summed_replicate_standard_error_w_m2": 0.0,
+        "first_value_w_m2": 0.0,
+        "second_value_w_m2": 0.0,
+        "interval": 0,
+        "sensor": "t0/glass",
+        "component": "direct"
+      },
+      "accuracy_inference": false
+    },
+    "csv_vs_inline_vulkan": {
+      "component_max_abs_w_m2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "exposure_max_abs_wh_m2": 0.0,
+      "worst": {
+        "absolute_error_w_m2": 0.0,
+        "summed_replicate_standard_error_w_m2": 0.0,
+        "first_value_w_m2": 0.0,
+        "second_value_w_m2": 0.0,
+        "interval": 0,
+        "sensor": "t0/glass",
+        "component": "direct"
+      },
+      "accuracy_inference": false
+    }
+  },
+  "uncertainty": {
+    "replicates": 2,
+    "conservative_annual_one_se_max_wh_m2": 26286.135847154594,
+    "approximate_95_t1_multiplier": 12.7062047364,
+    "independent_hour_quadrature": false,
+    "interpretation": "Weak two-replicate sampling uncertainty; not geometry/material/weather/model error or independent annual district validation."
+  },
+  "capabilities": {
+    "embree_shared_prototypes": true,
+    "vulkan_shared_blas_tlas": false,
+    "vulkan_flat_fallback": true,
+    "gpu_resident_transport": false,
+    "persistent_transfer_cache": false,
+    "solid_dielectric_dni": false,
+    "rough_transmission": "Synthetic reciprocal finite Full Klems sheet; not microfacet solid glass",
+    "sensor_partition_stable_streams": false,
+    "time_partition_regression": true
+  },
+  "default_storage": "npy: measured selective-read benefit and lower median write time; larger files, NPZ remains explicit.",
+  "limits": [
+    "Synthetic weather; sampled poses held at interval starts; no interpolation/motion blur",
+    "District year is workflow evidence. Independent annual material accuracy remains unestablished.",
+    "Original Solar differs from installed Radiance Visible; no matched measured-Solar Radiance claim",
+    "Time blocks/output-array and sensor admission limits bound selected allocations, not total process memory",
+    "Frequent-state publication costs dominate this small fixture; high-frequency full years not established",
+    "No added dependencies/downloads; toolkit runner absent and no configured lint/type gate",
+    "Late changes capture forcing/model hashes and verify daylight probes; numerical transport unchanged. Final CLI resume and final Vulkan year verify current runner."
+  ]
+}

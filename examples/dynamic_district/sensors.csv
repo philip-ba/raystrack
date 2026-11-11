@@ -1,0 +1,8 @@
+id,group,x,y,z,nx,ny,nz
+t0/glass,sheltered,2.13,3.37,0.01,0,0,1
+t0/sheet,sheltered,5.13,3.37,0.01,0,0,1
+t0/measured,sheltered,8.13,3.37,0.01,0,0,1
+t0/shade,shade,4,7.7,0.01,0,0,1
+t0/person,pedestrian,1,5.4,0.01,0,0,1
+t0/street,outdoor,10.8,0.8,0.01,0,0,1
+t0/open,reference,11,1,7,0,0,1

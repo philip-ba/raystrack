@@ -6,6 +6,8 @@ from functools import lru_cache
 import os
 from pathlib import Path
 
+import numpy as np
+
 from . import CapabilityError
 
 
@@ -17,6 +19,15 @@ _size = ct.c_size_t
 class _Surface(ct.Structure):
     _fields_ = [("vertices", _pointer), ("triangles", _pointer),
                 ("vertex_count", _size), ("triangle_count", _size)]
+
+
+class _Instance(ct.Structure):
+    _fields_ = [("prototype", ct.c_uint32), ("transform", ct.c_float * 12)]
+
+
+class _InstanceStatistics(ct.Structure):
+    _fields_ = [(key, ct.c_uint64) for key in
+               ("prototype_builds", "prototype_refits", "transform_commits", "scene_commits")]
 
 
 class Lighting(ct.Structure):
@@ -63,6 +74,18 @@ def _load(path):
             library.rs_update.restype = ct.c_int
             library.rs_update.argtypes = (_pointer, ct.POINTER(_Surface), _size,
                                          ct.POINTER(ct.c_int))
+        if hasattr(library, "rs_create_instances"):
+            library.rs_create_instances.restype = ct.c_int
+            library.rs_create_instances.argtypes = (ct.c_int, ct.POINTER(_Surface), _size,
+                                                    ct.POINTER(_Instance), _size, ct.POINTER(_pointer))
+            library.rs_update_instances.restype = ct.c_int
+            library.rs_update_instances.argtypes = (_pointer, ct.POINTER(_Surface), _size,
+                                                    ct.POINTER(_Instance), _size, ct.POINTER(ct.c_int))
+            library.rs_instance_statistics.restype = ct.c_int
+            library.rs_instance_statistics.argtypes = (_pointer, ct.POINTER(_InstanceStatistics))
+        if hasattr(library, "rs_trace"):
+            library.rs_trace.restype = ct.c_int
+            library.rs_trace.argtypes = (_pointer, _pointer, _size, _pointer, _pointer)
         if library.rs_abi() != 4:
             raise CapabilityError(f"Native library has an incompatible ABI (requires material ABI 4): {path}")
     except (OSError, AttributeError) as error:
@@ -85,6 +108,7 @@ class NativeGeometry:
 
     def __init__(self, backend, meshes):
         self._backend = backend
+        self.geometry_mode = "flat-world"
         self._handle = _pointer()
         self._library = native_library(backend)
         entries = (_Surface * len(meshes))(*(
@@ -95,6 +119,92 @@ class NativeGeometry:
         if status:
             raise CapabilityError(f"Could not initialize {backend!r}: {self._error()}")
 
+    @staticmethod
+    def _scene_entries(state):
+        prototypes, slots = [], {}
+        instances = (_Instance * len(state.surfaces))()
+        for i, surface in enumerate(state.surfaces):
+            key = id(surface.mesh)
+            if key not in slots:
+                slots[key] = len(prototypes)
+                prototypes.append(surface.mesh)
+            instances[i].prototype = slots[key]
+            instances[i].transform[:] = surface.transform[:3].ravel()
+        entries = (_Surface * len(prototypes))(*(
+            _Surface(mesh.vertices.ctypes.data, mesh.faces.ctypes.data,
+                     len(mesh.vertices), len(mesh.faces)) for mesh in prototypes))
+        return entries, instances
+
+    @classmethod
+    def from_scene(cls, backend, state):
+        """Use shared Embree prototypes, with explicit flat fallback elsewhere."""
+        library = native_library(backend)
+        if backend != "embree" or not hasattr(library, "rs_create_instances"):
+            return cls(backend, [(s.surface_id, s.world_vertices(), s.mesh.faces) for s in state.surfaces])
+        result = cls.__new__(cls)
+        result._backend, result._library = backend, library
+        result._handle = _pointer()
+        result.geometry_mode = "shared-prototype-instances"
+        entries, instances = result._scene_entries(state)
+        status = library.rs_create_instances(BACKENDS[backend], entries, len(entries),
+                                              instances, len(instances), ct.byref(result._handle))
+        if status:
+            raise CapabilityError(f"Could not initialize {backend!r} instances: {result._error()}")
+        return result
+
+    def update_scene(self, state):
+        """Atomically submit one immutable scene boundary, retaining local BLAS."""
+        if self.geometry_mode == "flat-world":
+            return self.update([(s.surface_id, s.world_vertices(), s.mesh.faces) for s in state.surfaces])
+        if not self._handle:
+            raise RuntimeError("NativeGeometry is closed")
+        entries, instances = self._scene_entries(state)
+        retained = ct.c_int()
+        status = self._library.rs_update_instances(self._handle, entries, len(entries),
+                                                   instances, len(instances), ct.byref(retained))
+        if status:
+            raise RuntimeError(f"Could not update {self._backend!r} instances: {self._error()}")
+        return bool(retained.value)
+
+    @property
+    def instance_statistics(self):
+        """Current traversal counters; rebuilding resets them to a new lifetime."""
+        if not self._handle:
+            raise RuntimeError("NativeGeometry is closed")
+        if not hasattr(self._library, "rs_instance_statistics"):
+            return None
+        stats = _InstanceStatistics()
+        if self._library.rs_instance_statistics(self._handle, ct.byref(stats)):
+            raise RuntimeError(self._error())
+        return {key: getattr(stats, key) for key, _ in stats._fields_}
+
+    def trace(self, origins, directions, *, t_min=1e-6, t_max=np.inf):
+        """Diagnostic closest hits and bounded occlusion; input directions are unchanged."""
+        if not self._handle:
+            raise RuntimeError("NativeGeometry is closed")
+        if not hasattr(self._library, "rs_trace"):
+            raise CapabilityError("Native library lacks diagnostic rs_trace")
+        origins, directions = np.asarray(origins, np.float32), np.asarray(directions, np.float32)
+        if origins.ndim != 2 or origins.shape[1] != 3 or directions.shape != origins.shape:
+            raise ValueError("origins and directions must have shape (n, 3)")
+        if (not np.isfinite(origins).all() or not np.isfinite(directions).all()
+                or np.any(np.max(np.abs(directions), axis=1) == 0)):
+            raise ValueError("origins and nonzero directions must be finite float32 values")
+        if not np.isscalar(t_min) or not np.isscalar(t_max):
+            raise ValueError("ray bounds must be scalars")
+        if not np.isfinite(t_min) or t_min < 0 or np.isnan(t_max) or t_max < t_min:
+            raise ValueError("ray bounds require finite 0 <= t_min <= t_max")
+        rays = np.empty((len(origins), 8), np.float32)
+        rays[:, :3], rays[:, 3:6], rays[:, 6], rays[:, 7] = origins, directions, t_min, t_max
+        dtype = np.dtype([("surface", "i4"), ("primitive", "i4"), ("distance", "f4"),
+                          ("u", "f4"), ("v", "f4"), ("normal", "f4", 3), ("point", "f4", 3)])
+        hits, occluded = np.empty(len(origins), dtype), np.empty(len(origins), np.uint8)
+        status = self._library.rs_trace(self._handle, rays.ctypes.data, len(rays),
+                                        hits.ctypes.data, occluded.ctypes.data)
+        if status:
+            raise RuntimeError(self._error())
+        return hits, occluded
+
     def update(self, meshes):
         """Commit ordered world geometry while retaining backend resources if supported.
 
@@ -103,6 +213,8 @@ class NativeGeometry:
         """
         if not self._handle:
             raise RuntimeError("NativeGeometry is closed")
+        if self.geometry_mode != "flat-world":
+            raise RuntimeError("Shared instance geometry requires update_scene")
         if not hasattr(self._library, "rs_update"):
             replacement = NativeGeometry(self._backend, meshes)
             self.close()

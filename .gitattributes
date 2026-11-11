@@ -1,3 +1,4 @@
 # Preserve licensed optical data exactly, including original whitespace.
 # Review these unchanged bytes by their pinned hash, not by text normalization.
 tests/fixtures/bsdf/2011-SA1.XML -text -diff
+examples/dynamic_district/assets/2011-SA1.XML -text -diff

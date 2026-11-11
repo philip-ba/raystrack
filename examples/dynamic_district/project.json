@@ -1,0 +1,1125 @@
+{
+  "schema": "raystrack.shortwave-project",
+  "version": 1,
+  "description": "Synthetic moving courtyard; original licensed CGDB Solar; workflow execution, not annual accuracy validation",
+  "units": {
+    "length": "m",
+    "irradiance": "W/m2"
+  },
+  "coordinates": "ENU",
+  "site": {
+    "latitude_deg": 52.52,
+    "longitude_deg": 13.405,
+    "north_deg": 0,
+    "utc_offset_minutes": 60
+  },
+  "weather": {
+    "type": "synthetic",
+    "year": 2025,
+    "interval_minutes": 60,
+    "steps": 8760,
+    "start_utc": "2024-12-31T23:00:00Z"
+  },
+  "prototypes": [
+    {
+      "id": "pavement",
+      "vertices": "assets/pavement-vertices.npy",
+      "faces": "assets/pavement-faces.npy"
+    },
+    {
+      "id": "facade",
+      "vertices": "assets/facade-vertices.npy",
+      "faces": "assets/facade-faces.npy"
+    },
+    {
+      "id": "canopy",
+      "vertices": "assets/canopy-vertices.npy",
+      "faces": "assets/canopy-faces.npy"
+    },
+    {
+      "id": "slat",
+      "vertices": "assets/slat-vertices.npy",
+      "faces": "assets/slat-faces.npy"
+    },
+    {
+      "id": "person",
+      "vertices": "assets/person-vertices.npy",
+      "faces": "assets/person-faces.npy"
+    }
+  ],
+  "instances": [
+    {
+      "id": "t0/ground",
+      "prototype": "pavement",
+      "material": "pavement",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/north",
+      "prototype": "facade",
+      "material": "facade",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          11.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/west",
+      "prototype": "facade",
+      "material": "facade",
+      "transform": [
+        [
+          6.123233995736766e-17,
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          1.0,
+          6.123233995736766e-17,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/glass",
+      "prototype": "canopy",
+      "material": "glass",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          2.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          3.5
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          2.8
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/sheet",
+      "prototype": "canopy",
+      "material": "sheet",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          5.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          3.5
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          2.8
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/measured",
+      "prototype": "canopy",
+      "material": "measured",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          8.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          3.5
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          2.8
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/shade0",
+      "prototype": "slat",
+      "material": "shade",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          1.3
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          7.7
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          3.2
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/shade1",
+      "prototype": "slat",
+      "material": "shade",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          2.6
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          7.7
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          3.2
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/shade2",
+      "prototype": "slat",
+      "material": "shade",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          3.9000000000000004
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          7.7
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          3.2
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/shade3",
+      "prototype": "slat",
+      "material": "shade",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          5.2
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          7.7
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          3.2
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/shade4",
+      "prototype": "slat",
+      "material": "shade",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          6.5
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          7.7
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          3.2
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/shade5",
+      "prototype": "slat",
+      "material": "shade",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          7.8
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          7.7
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          3.2
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/shade6",
+      "prototype": "slat",
+      "material": "shade",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          9.100000000000001
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          7.7
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          3.2
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/shade7",
+      "prototype": "slat",
+      "material": "shade",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          10.4
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          7.7
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          3.2
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person0",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          5.4
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person1",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          2.1
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          5.4
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person2",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          3.2
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          5.4
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person3",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          4.300000000000001
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          5.4
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person4",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          5.4
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          5.4
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person5",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          6.5
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          5.4
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person6",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          7.6000000000000005
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          5.4
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person7",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          8.700000000000001
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          5.4
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person8",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          9.8
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          5.4
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person9",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          1.0
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          9.3
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person10",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          2.1
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          9.3
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person11",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          3.2
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          9.3
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person12",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          4.300000000000001
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          9.3
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person13",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          5.4
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          9.3
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person14",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          6.5
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          9.3
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person15",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          7.6000000000000005
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          9.3
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person16",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          8.700000000000001
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          9.3
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    },
+    {
+      "id": "t0/person17",
+      "prototype": "person",
+      "material": "person",
+      "transform": [
+        [
+          1.0,
+          -0.0,
+          0.0,
+          9.8
+        ],
+        [
+          0.0,
+          1.0,
+          0.0,
+          9.3
+        ],
+        [
+          0.0,
+          0.0,
+          1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      ]
+    }
+  ],
+  "materials": {
+    "pavement": {
+      "type": "opaque",
+      "front": 0.2
+    },
+    "facade": {
+      "type": "opaque",
+      "front": 0.5
+    },
+    "person": {
+      "type": "opaque",
+      "front": 0.15
+    },
+    "shade": {
+      "type": "opaque",
+      "front": 0.3
+    },
+    "glass": {
+      "type": "clear_glazing",
+      "refractive_index": 1.52
+    },
+    "sheet": {
+      "type": "diffuse_sheet",
+      "front_reflectance": 0.15,
+      "back_reflectance": 0.25,
+      "transmittance": 0.45
+    },
+    "sheet_open": {
+      "type": "diffuse_sheet",
+      "front_reflectance": 0.1,
+      "back_reflectance": 0.1,
+      "transmittance": 0.7
+    },
+    "measured": {
+      "type": "klems_xml",
+      "path": "assets/2011-SA1.XML",
+      "band": "solar"
+    }
+  },
+  "sensors": "sensors.csv",
+  "states": [
+    {
+      "timestamp_utc": "2025-06-29T23:00:00Z",
+      "interpolation": "hold",
+      "materials": {
+        "t0/sheet": "sheet_open"
+      }
+    },
+    {
+      "timestamp_utc": "2025-09-27T23:00:00Z",
+      "interpolation": "hold",
+      "vertices": {
+        "t0/north": "assets/facade-deformed-t0.npy"
+      }
+    },
+    {
+      "timestamp_utc": "2025-10-27T23:00:00Z",
+      "interpolation": "hold",
+      "meshes": {
+        "t0/shade7": {
+          "vertices": "assets/slat-topology-t0.npy",
+          "faces": "assets/slat-one-face.npy"
+        }
+      }
+    }
+  ],
+  "settings": {
+    "backend": "embree",
+    "samples": 64,
+    "replicates": 2,
+    "bounces": 3,
+    "seed": 17,
+    "block_steps": 168,
+    "storage": "npy",
+    "retention": "hourly",
+    "max_sensors": 4096
+  },
+  "state_tracks": {
+    "path": "poses.csv",
+    "interpolation": "hold"
+  }
+}

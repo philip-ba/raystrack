@@ -26,6 +26,10 @@ struct SurfaceInput {
     std::size_t vertex_count, triangle_count;
 };
 
+struct InstanceStatsInput {
+    std::uint64_t prototype_builds, prototype_refits, transform_commits, scene_commits;
+};
+
 struct SceneHandle {
     std::unique_ptr<Traversal> traversal;
     std::size_t surfaces;
@@ -115,6 +119,62 @@ RS_EXPORT int rs_update(SceneHandle* handle, const SurfaceInput* input, std::siz
 }
 
 RS_EXPORT void rs_destroy(SceneHandle* handle) noexcept { delete handle; }
+
+// Additive ABI4 extension. Flat clients and libraries retain their old contract.
+RS_EXPORT int rs_create_instances(int backend, const SurfaceInput* input, std::size_t count,
+                                  const GeometryInstance* instances, std::size_t instance_count,
+                                  SceneHandle** result) noexcept {
+    return guarded([&] {
+        if (backend != 1) throw std::runtime_error("shared native instances require Embree");
+        std::vector<SurfaceGeometry> geometry;
+        for (std::size_t i = 0; i < count; ++i)
+            geometry.push_back({{input[i].vertices, input[i].vertex_count},
+                                {input[i].triangles, input[i].triangle_count}});
+#ifdef RAYSTRACK_EMBREE
+        *result = new SceneHandle{make_embree_instances(geometry, {instances, instance_count}),
+                                  instance_count, backend};
+#else
+        throw std::runtime_error("Embree is absent from this build");
+#endif
+    });
+}
+
+RS_EXPORT int rs_update_instances(SceneHandle* handle, const SurfaceInput* input, std::size_t count,
+                                  const GeometryInstance* instances, std::size_t instance_count,
+                                  int* retained) noexcept {
+    return guarded([&] {
+        if (handle->backend != 1) throw std::runtime_error("shared native instances require Embree");
+        std::vector<SurfaceGeometry> geometry;
+        for (std::size_t i = 0; i < count; ++i)
+            geometry.push_back({{input[i].vertices, input[i].vertex_count},
+                                {input[i].triangles, input[i].triangle_count}});
+        const bool reused = handle->traversal->update_instances(geometry, {instances, instance_count});
+#ifdef RAYSTRACK_EMBREE
+        if (!reused) {
+            auto replacement = make_embree_instances(geometry, {instances, instance_count});
+            handle->traversal = std::move(replacement);
+        }
+#endif
+        handle->surfaces = instance_count;
+        if (retained) *retained = reused;
+    });
+}
+
+RS_EXPORT int rs_instance_statistics(const SceneHandle* handle, InstanceStatsInput* result) noexcept {
+    return guarded([&] {
+        const auto stats = handle->traversal->instance_statistics();
+        *result = {stats.prototype_builds, stats.prototype_refits,
+                   stats.transform_commits, stats.scene_commits};
+    });
+}
+
+RS_EXPORT int rs_trace(const SceneHandle* handle, const Ray* rays, std::size_t count,
+                       Hit* hits, std::uint8_t* occluded) noexcept {
+    return guarded([&] {
+        handle->traversal->intersect({rays, count}, {hits, count});
+        handle->traversal->occluded({rays, count}, {occluded, count});
+    });
+}
 
 RS_EXPORT int rs_shortwave(const SceneHandle* handle, const Sensor* sensors, std::size_t count,
                            const Lighting* light, std::size_t steps, const OpticalMaterial* materials,

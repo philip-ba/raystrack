@@ -380,12 +380,10 @@ class ShortwaveSolver:
             if channel_basis == "neutral" and (colored or any(np.any(a != a[..., :1]) for a in (direct, radiance))):
                 raise ValueError("non-neutral RGB requires an explicit channel_basis")
             if self._geometry_revision != state.revision:
-                meshes = [(surface.surface_id, surface.world_vertices(), surface.mesh.faces)
-                          for surface in state.surfaces]
                 if self._native is None:
-                    self._native = NativeGeometry(self.backend, meshes)
+                    self._native = NativeGeometry.from_scene(self.backend, state)
                 else:
-                    self._native.update(meshes)
+                    self._native.update_scene(state)
                 self._geometry_revision = state.revision
 
             shape = (steps, len(sensors), len(ShortwaveResult.components), 3)

@@ -132,6 +132,53 @@ class KlemsBSDF:
         object.__setattr__(self, "band", _band_name(self.band))
 
     @classmethod
+    def rough_transmission(cls, transmittance, exponent, *, reflectance=0) -> KlemsBSDF:
+        """Construct a synthetic, reciprocal finite directional sheet.
+
+        The Full Klems cell density is proportional to
+        ``max(dot(c_i, c_o), 0)**exponent``, using polar/azimuth cell centers
+        on one hemisphere. Incident XY reversal makes its diagonal straight
+        through. One global factor sets the largest directional-hemispherical
+        transmission to ``transmittance``; absorption varies with direction.
+        Reflection is Lambertian with the same coefficient on both sides.
+
+        This defines a piecewise constant finite BTDF in sr^-1, not a
+        microfacet dielectric, measured product, or delta event. Exponent 0
+        is diffuse; 1..256 concentrates the lobe within this coarse basis.
+        A global normalization preserves reciprocity, unlike row normalization.
+        """
+        parameters = []
+        for name, value, limit in (("transmittance", transmittance, 1),
+                                   ("exponent", exponent, 256),
+                                   ("reflectance", reflectance, 1)):
+            raw = np.asarray(value)
+            if (raw.shape != () or raw.dtype.kind not in "fiu"
+                    or not np.isfinite(raw) or not 0 <= raw <= limit):
+                raise ValueError(f"{name} must be a finite real scalar in [0, {limit}]")
+            parameters.append(float(raw))
+        tau, power, rho = parameters
+        if tau+rho > 1:
+            raise ValueError("reflectance plus transmittance must be at most one")
+        centers = []
+        for low, high, count in zip(KLEMS_POLAR_BOUNDS_DEG[:-1],
+                                    KLEMS_POLAR_BOUNDS_DEG[1:], KLEMS_AZIMUTH_COUNTS):
+            theta = 0.0 if count == 1 else math.radians((low+high)/2)
+            for sector in range(int(count)):
+                phi = math.tau*sector/count
+                centers.append([math.sin(theta)*math.cos(phi),
+                                math.sin(theta)*math.sin(phi), math.cos(theta)])
+        centers = np.asarray(centers)
+        density = np.maximum(centers @ centers.T, 0)**power
+        # Enforce the exact reciprocity permutation despite trigonometric
+        # roundoff; this is synthetic construction, not repair of imported data.
+        density = .5*(density+density.T[np.ix_(_HALF_TURN, _HALF_TURN)])
+        density *= tau/np.max(density @ KLEMS_PROJECTED_SOLID_ANGLES)
+        matrices = np.empty((4, _PATCHES, _PATCHES))
+        matrices[:2] = rho/math.pi
+        matrices[2:] = density
+        return cls(matrices)
+
+    @classmethod
     def from_xml(cls, path, *, band="solar", window_front="front") -> KlemsBSDF:
         """Load one named band of a WINDOW Full Klems XML file.
 
