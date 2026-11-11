@@ -1,5 +1,22 @@
 # Validation and benchmarks
 
+The [glass and urban implementation report](../docs/native-glass-urban-20261111.md)
+records ABI4 solid-sky physics, measurement-based Solar Full Klems checks,
+independent wavelength intervals and final regression/hardware evidence.
+Run `python -m validation.annual_urban --help` for the bounded annual district
+workflow and scale sweep; [its guide](../docs/annual-urban.md) supplies exact commands.
+
+The [BSDF milestone coverage](../docs/native-bsdf-20261111.md) records native
+delta plate, reciprocal sided-sheet and finite Klems tests, pinned Radiance
+comparisons, annual gates and the separate host-transport/hardware-traversal scope.
+
+The native renderer's full-year neutral cube comparison against Radiance is
+documented in [annual-radiance.md](annual-radiance.md). Its tracked runner
+`annual_radiance.py` evaluates all 8760 hours on Embree and Vulkan RT, with
+separate sun and diffuse forcing, explicit per-face accuracy gates, reference
+coefficient timings, and high-quality diagnostic timesteps. Raw results belong
+under the ignored `build/annual-validation/` directory.
+
 The analytical helpers now construct public v2 `Mesh`/`Scene`/`Solver` objects
 and read replicate counts from `Result.statistics`. Legacy result files remain
 historical artifacts. New v2 reports have `v2_` prefixes.

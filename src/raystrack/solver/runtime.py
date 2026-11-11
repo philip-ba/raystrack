@@ -10,6 +10,7 @@ from ..model import Scene
 from ..utils.prepared import PreparedSolver
 from ..backends import CapabilityError
 from ..backends.calibration import warmup
+from ..backends.devices import DEVICES, NATIVE_DEVICES
 from ..engine.controls import controls
 from ..engine.scheduler import Accumulator, advance
 from ..engine.sampling import _select_bvh
@@ -33,9 +34,11 @@ class Solver:
         if acceleration not in ("flat", "instanced"):
             raise ValueError("acceleration must be flat or instanced")
         device = (device or "auto").lower()
-        if device not in ("auto", "cpu", "gpu", "cuda", "taichi", "vulkan", "metal"):
+        if device not in DEVICES:
             raise ValueError("Unknown device")
         _select_bvh(bvh, 0)
+        if device in NATIVE_DEVICES and (acceleration != "flat" or (bvh or "auto").lower() != "auto"):
+            raise CapabilityError("Native traversal requires acceleration='flat' and bvh='auto'")
         for name, value in (("auto_tune", auto_tune), ("cuda_async", cuda_async), ("gpu_raygen", gpu_raygen)):
             if not isinstance(value, bool):
                 raise ValueError(f"{name} must be a bool")
@@ -139,7 +142,7 @@ class Solver:
         senders, receivers = query.resolve(self.scene.surface_ids)
         if options.sampling.strategy == "area_pair":
             if self.device not in ("auto", "cpu"):
-                raise CapabilityError("area_pair supports CPU only")
+                raise CapabilityError("area_pair supports CPU only via device='auto' or 'cpu'")
             if not query.scene or query.sky_mode is not None or len(senders) != 1 or len(receivers) != 1:
                 raise CapabilityError("area_pair requires one sender/receiver pair and no sky")
             if options.postprocessing.reciprocity != "none":

@@ -51,6 +51,17 @@ behavior rather than performance. Taichi reuses one compatible FP32 runtime per
 process and serializes access. Set `TI_VISIBLE_DEVICE` before first GPU use when
 choosing a Taichi adapter.
 
+The development branch also offers an optional C++20 build with Embree and
+Vulkan hardware ray queries. It provides shortwave irradiance and native
+traversal for cosine view factors. See the [native solver guide](docs/native-shortwave.md)
+for builds, solar and sky inputs, and material and geometry updates.
+The [BSDF milestone coverage](docs/native-bsdf-20261111.md) records sided diffuse
+sheets, finite Klems lobes and clear-plate delta transport with explicit limits.
+The [current glass and urban milestone](docs/native-glass-urban-20261111.md)
+adds limited solid-glass sky transport, a licensed measured-product BSDF,
+explicit independent wavelength intervals, and a restartable annual district
+workflow with scheduled scene edits and measured scale checks.
+
 ## Quick start
 
 ```python

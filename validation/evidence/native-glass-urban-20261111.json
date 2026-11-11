@@ -1,0 +1,256 @@
+{
+  "baseline_commit": "6cadade8ea29a83744191fcff05062e7b713f196",
+  "branch": "dev/native-renderer-20261111",
+  "native_abi": 4,
+  "native_library_sha256": "a25bf6632ffd6a536e9ca2f9e99064cefdae9088416842792af93d2fed8bef80",
+  "fixture_sha256": "5f398e08a81fecd57f9e566fa2a16f08bb0f2ca2a22fdba04d5d949c818b3336",
+  "source_sha256": {
+    "examples/ex07_shortwave.py": "8d2c2035b75bcf28335e5cab8661f19ede47f7660c7e0acf0ff3de4b923448ed",
+    "examples/ex09_independent_bands.py": "c1274a0148c0574b03a4c167f8071e607ac56dfe5f3de6e6628deedd99265d49",
+    "native/CMakeLists.txt": "ff312b16f4ee87b5e8a52e30aba2a6120ec5989f2f053bdfca598b888664bb18",
+    "native/api.cpp": "5595938db523f220bbaa52c1eaea26679c42c73073ba9b830f4164ea4fefe231",
+    "native/builtin.cpp": "626a26c923304795c69ad88965fb992897b10f2e594d54da91d2d290ac91415a",
+    "native/embree/CMakeLists.txt": "4335d51234c57ad752d47e9bcb912676d3f68fdc6f0521155196f00c134ca58d",
+    "native/embree/traversal.cpp": "da39c32a3c9af949058d5c8224fcf0056765cd3bea1d0b2014e5445b2a38da90",
+    "native/include/raystrack/traversal.hpp": "fddd32dd3c41dd9b863eec22f18c5b3a88a85f15710bdc3197ebe8c4298102ac",
+    "native/scattering.hpp": "aa37a987f51ac235f46ea083b08d0997b36e1ebd07da8e41a4cb0cd7b20d0dc5",
+    "native/scattering_test.cpp": "6399858c6edfb0eb58828e635cb660f4dbb9c18fe26575beb47344017510fc66",
+    "native/shortwave.cpp": "d5513cb1528d68f2860b7febf1d7a8c929b0de8bac1f67d36e7a30451573a6c7",
+    "native/shortwave.hpp": "8cea7807b81d2826842de407cfa83efb26d6266a8ab8294d69b174ebe0d6a611",
+    "native/vector.hpp": "2865b955b841e10f1d8f267d49badc1992f78ed3b25de296f78c33f47ae8f71f",
+    "native/vulkan/CMakeLists.txt": "a2ff5f162750cbb28449b00bb6899251512e97a05d59f7ef2edf144c51238f40",
+    "native/vulkan/probe.cpp": "e9245d1619765bc8912818e077c14219b3943bfcc976397c725d01de33505e0e",
+    "native/vulkan/trace.comp": "b32041bcfa4ddfe414b6f0b4ee65c39a8b9e59b6682f749b1cf1eb98eaf106ca",
+    "native/vulkan/traversal.cpp": "cfa352995a07d301abda069f3cccc6125cbb2b037237ca91c2bf89e1fada1b39",
+    "src/raystrack/backends/calibration.py": "1af58a225609da9995d0831c7481e3541e17944d199e6025e50a68191e35a1a9",
+    "src/raystrack/backends/devices.py": "cd334127bec7848eb7d950e9c13fd24e88849c3e3a209d63f41fbcd3516995a5",
+    "src/raystrack/backends/native.py": "5fcb273f39bc63def9e08b63230abdd89b975db8dee56b6f4a3d360e3ff9ab85",
+    "src/raystrack/backends/workspaces.py": "2547acb308b4fde65387e7d522011446cde67bc0cecd6443cbc0c8fbccfe1c09",
+    "src/raystrack/engine/scheduler.py": "c35297b08c430358f7088d7774ab693a354948d260d91cb5de7d428e469e0f1d",
+    "src/raystrack/model/scene.py": "fc40c035000f3990dbc3cc609adb883f20f3312f24f29f32d249d41abdd7685b",
+    "src/raystrack/shortwave/__init__.py": "29b263e21a2d2b778cb6235d775b62972ea5829ec3c124c759f2d84517ecd0f3",
+    "src/raystrack/shortwave/klems.py": "5afc154cdd7a794c8b0281d84c1abd2f3cdc1506d87709d30e43ecdfccc09519",
+    "src/raystrack/shortwave/materials.py": "f71aeb1e6edd61d6e54f14ce98a88a2ac70fbe9cc0cbd6bff2fad95e1fb379a7",
+    "src/raystrack/shortwave/sky.py": "33d7c5b8173dd965bcd0a6674c742a886eec313ba101e6a89d58b4098ee4bf85",
+    "src/raystrack/shortwave/solar.py": "b8d83e3b8d7731d32639aac357666c1dd313dfbe410fba0d39ac2efd6cb517b3",
+    "src/raystrack/shortwave/solver.py": "04a9613c02fa2f1fe793e24853b41482536168be4bc5cc3a01b0b95202ba81e3",
+    "src/raystrack/shortwave/spectral.py": "35cd94d8b8bf4f206ae969dc48a11136d6bf6c7a67215d8b213389582e30da67",
+    "src/raystrack/solver/runtime.py": "dec0c7361e3b65e7f59043b2699d5ecb7ddfb5cd6a91fff683bf8a9fb68da053",
+    "tests/test_annual_radiance.py": "55ec291b96fcd658a64b887dd2c81f4ef25d91f1e3df784d3699ed8e2b16bd54",
+    "tests/test_annual_urban.py": "5833f740d7368028359204484521fbf171d55c163044685fa46cbf1e3d83ee14",
+    "tests/test_bsdf_vulkan.py": "eb2e845fa6680c3d9a0e23a919d49ded96597d7c29506dd1544d3272b3a8e33f",
+    "tests/test_clear_glazing_reference.py": "ec3bbe21c179918cff8b4ad36cd3246c15ae6ed35f16fee2ccccdacfd6bdecaa",
+    "tests/test_glazing_radiance.py": "4f086177b743147fe062cf6eefecd716364139556587d5c8939b29c61f4c8608",
+    "tests/test_measured_bsdf_reference.py": "39d10517145dd66d0b6679a6b218ee6d0258a06f1d523f4ef58684f7aa6775bf",
+    "tests/test_native_embree_updates.py": "fc6e6fa814b82da64d6fee96616d702cbbd323259fe26a9ce8783db14b57827b",
+    "tests/test_native_geometry.py": "516a53b87c62eec66d0807d422647c3feaee64cd4babc36b20aef096efdb70ff",
+    "tests/test_native_longwave.py": "1857f4ce7bfb1405a52d34d1c76144aa8c69676bd792a667973c1749353308e8",
+    "tests/test_native_vulkan_updates.py": "7b30c94918598fcbb5c1c6e55291ea757cd9a4d6072a577c6f3266dc74ed6b1c",
+    "tests/test_shortwave_glazing.py": "77135ef71905b4e45ffd2c6bd493565a29eb0407cadaff49b5fa81e107a2f78b",
+    "tests/test_shortwave_klems.py": "6ae100ba375ba9ad961500674f2337a2857a24ff2a6593fbcaa8308565383a0a",
+    "tests/test_shortwave_materials.py": "575d56d1617c3cfbf6de8c5227517888f21e8de64b1f1ad0673c926b4936c7f1",
+    "tests/test_shortwave_milestone.py": "e1fa31bddf2b113f6ab6d0cb4c539e5215db3d283adfbb9be6ff2923fc1bca95",
+    "tests/test_shortwave_sky.py": "11bf10a98ba8edd2d2dc8aefa56c0000d67fe5d262c79050f335c03634f17313",
+    "tests/test_shortwave_solar.py": "cce1a62378ad6b40a512f261a717eb917d6fc251a7b44cbcf7e1a2ab7219b44e",
+    "tests/test_shortwave_solid_glass.py": "621370dd9c989e9058cefc5234bd848bf527f9efccaac9f1691d82cd6692be71",
+    "tests/test_shortwave_spectral.py": "09b2b6db6518d3a04b886a5168c190e1c52331578acd1281644d4bf88f65b415",
+    "tests/test_shortwave_transport.py": "77db6f332865eb76a89a75a764bbc4032caa348a55d34f06fd8956fb668ac804",
+    "validation/annual_radiance.py": "b7a1b0843d891a4ec43d38bd1bb13a5d8029a08f741cf726371db97d7ea4a1a4",
+    "validation/annual_urban.py": "46d009ab7f0b4a494cb87a03f8e623d5f907abe5df789085c5d522ce8ce11314",
+    "validation/benchmark_native_shortwave.py": "36f3029ef357d0056ccc49d75554c1c602c5fa135a0d0ffa20bf655b0a14ca56",
+    "validation/benchmark_native_updates.py": "f898709f637794f81fccd346a0cda0d1ef8f83fa56787e873cf167ba9300b4c4",
+    "validation/benchmark_radiance_matched.py": "c956fdc10bd411af78a0b36ec7a7bbcf87fcd8e65d116724651781d3afc810aa",
+    "validation/validate_clear_glazing.py": "b958329bc9eb3a1877785eb6756bbdc2de7a0a2826bc062b0af04ee24eab2bdf",
+    "validation/validate_measured_bsdf.py": "a115acc1e622d28d5721f5e48aee9be0160517c75bc1c34a852ff0c3a4f7f0dc",
+    "validation/validate_shortwave_panels.py": "ec2c6d7132f4f3bbc757e6a4ede45ec6b3cc3db78f101f7130fe9502775369e4"
+  },
+  "python": "3.13.9",
+  "tests": {
+    "initial_full": {
+      "tests": 506,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 26,
+      "passed": 480,
+      "seconds": 308.41,
+      "evidence": "build/glass-urban-20261111/full-suite.xml"
+    },
+    "full_after_reference_cache_fix": {
+      "tests": 510,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 26,
+      "passed": 484,
+      "seconds": 415.195,
+      "evidence": "build/glass-urban-20261111/full-suite-final.xml"
+    },
+    "native_absent_compatibility": {
+      "tests": 171,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 24,
+      "passed": 147,
+      "seconds": 38.726,
+      "evidence": "build/glass-urban-20261111/native-absent-final.xml"
+    },
+    "khronos_hardware": {
+      "tests": 32,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 2,
+      "passed": 30,
+      "seconds": 113.257,
+      "evidence": "build/glass-urban-20261111/hardware.xml"
+    },
+    "final_annual_checker": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 10,
+      "seconds": 0.916,
+      "evidence": "build/glass-urban-20261111/checker-final.xml"
+    },
+    "checker_order_note": "The full rerun collected before the last requested-backend regression was added; the final focused 10-test checker run covers that added regression and final checker source.",
+    "ctest": {
+      "passed": 2,
+      "failed": 0,
+      "evidence": "build/glass-urban-20261111/ctest-validation.log"
+    }
+  },
+  "annual_reference": {
+    "intervals": 8760,
+    "face_mode_backend_gates": 45,
+    "all_passed": true,
+    "maximum_annual_relative_error": 0.013884166121410413,
+    "maximum_daylight_nrmse": 0.01715438952329419,
+    "reference_method": "exact forcing/sensors/scene; required source/coefficient hashes; reconstructed sun/sky from verified coefficients; recomputed zero-bounce primary",
+    "report_sha256": "13e709aee2ef40bd3971d1f45ed212c96f6d67fe3a5436162c0eeb219a986d33",
+    "evidence": "build/glass-urban-20261111/annual-reference-verified/report.json"
+  },
+  "measured_bsdf": {
+    "passed": true,
+    "backend_side_groups": 6,
+    "maximum_directional_energy": 0.6986111366127287,
+    "reciprocity_residual_sr_inverse": [
+      0.05021399999999998,
+      0.04829999999999998,
+      0.019976
+    ],
+    "evidence": "build/glass-urban-20261111/measured-bsdf.json"
+  },
+  "annual_urban": {
+    "intervals": 8760,
+    "triangles": 96,
+    "sensors": 20,
+    "samples": 64,
+    "replicates": 2,
+    "bounces": 3,
+    "fresh_process_trials_per_backend": 3,
+    "backend_summary": {
+      "embree": {
+        "block_solve_s_trials": [
+          4.286301300002378,
+          4.652843400004713,
+          4.382527199990363
+        ],
+        "block_solve_s_median": 4.382527199990363,
+        "block_solve_s_range": [
+          4.286301300002378,
+          4.652843400004713
+        ],
+        "process_peak_resident_bytes_trials": [
+          104005632,
+          103731200,
+          103694336
+        ],
+        "exposure_repeat_max_abs_wh_m2": 0.0
+      },
+      "vulkan-rt": {
+        "block_solve_s_trials": [
+          11.441628499993385,
+          11.98327309999695,
+          11.825490900007935
+        ],
+        "block_solve_s_median": 11.825490900007935,
+        "block_solve_s_range": [
+          11.441628499993385,
+          11.98327309999695
+        ],
+        "process_peak_resident_bytes_trials": [
+          284319744,
+          283242496,
+          285495296
+        ],
+        "exposure_repeat_max_abs_wh_m2": 0.0
+      }
+    },
+    "backend_parity": {
+      "1": {
+        "intervals": 8760,
+        "component_max_abs_w_m2": [
+          0.0,
+          0.0,
+          0.0,
+          0.019766705411755847
+        ],
+        "exposure_max_abs_wh_m2": 0.019766705416259356
+      },
+      "2": {
+        "intervals": 8760,
+        "component_max_abs_w_m2": [
+          0.0,
+          0.0,
+          0.0,
+          0.019766705411755847
+        ],
+        "exposure_max_abs_wh_m2": 0.019766705416259356
+      },
+      "3": {
+        "intervals": 8760,
+        "component_max_abs_w_m2": [
+          0.0,
+          0.0,
+          0.0,
+          0.019766705411755847
+        ],
+        "exposure_max_abs_wh_m2": 0.019766705416259356
+      }
+    },
+    "scale": {
+      "backend": "embree",
+      "selected_hours": 24,
+      "largest_geometry_triangles": 49164,
+      "largest_sensor_case": 320,
+      "dimensions_measured_separately": true,
+      "maximum_capacity_established": false,
+      "production_runtime_projection": null
+    },
+    "vram_measured": false,
+    "evidence": "build/glass-bsdf-urban-20261111/annual-urban-final-summary.json"
+  },
+  "review": {
+    "native_backend_files": 16,
+    "python_source_files": 14,
+    "validation_tests_examples": 29,
+    "unresolved_p1_p2": 0,
+    "staged_fixture_hash_verified": true
+  },
+  "agent_settings": {
+    "launches": 3,
+    "requested_model": "gpt-6.1-sol",
+    "requested_reasoning": "medium",
+    "launch_settings_accepted": true,
+    "served_model_independently_verified": false,
+    "lead_model_introspectable": false
+  },
+  "limits": [
+    "Solid dielectric sky-only; nonzero DNI rejected",
+    "Convex closed outward connected solids; n1..10, disjoint AABBs, exterior sensors",
+    "Slender hardware boundary facets may raise explicit inconsistent-medium capability failure",
+    "No analytic rough dielectric, polarization-state transport or cross-band physics",
+    "No matched measured-Solar annual Radiance reference",
+    "No GPU-resident transport, native shared prototypes or persistent transfer cache",
+    "Annual urban demonstrates workflow at low sampling, not production accuracy; source weather synthetic"
+  ]
+}

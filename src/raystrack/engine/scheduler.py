@@ -10,6 +10,7 @@ import numpy as np
 from .sampling import _select_bvh, _build_emitter_surface_mask
 from ..backends.workspaces import workspace_for
 from ..backends.calibration import plan_execution
+from ..backends.devices import NATIVE_DEVICES
 
 @dataclass
 class _Estimate:
@@ -232,9 +233,11 @@ def advance(prepared, cfg, acc, *, cancel=None, progress=None, allow_calibration
         # visibility. It needs neither cosine tables nor a separate BLAS/TLAS.
         scene, emitters = None, [None] * n_surf
     else:
-        use_bvh = _select_bvh(p.bvh, solver.total_faces)
-        scene = (solver.get_instanced_scene() if solver.acceleration == "instanced"
-                 else solver.get_scene(use_bvh=use_bvh))
+        scene = None
+        if p.device not in NATIVE_DEVICES:
+            use_bvh = _select_bvh(p.bvh, solver.total_faces)
+            scene = (solver.get_instanced_scene() if solver.acceleration == "instanced"
+                     else solver.get_scene(use_bvh=use_bvh))
         emitters = solver.get_emitters(samples=p.samples, rays=p.rays, flip_faces=p.flip_faces)
         centers, extents = solver.get_mesh_bounds()
     discrete = p.discrete
@@ -362,7 +365,7 @@ def advance(prepared, cfg, acc, *, cancel=None, progress=None, allow_calibration
         group = 1
         # Preserve deferred GPU reductions for unrestricted fair solves. Their
         # per-row seeds and counts are independent of cross-row ordering.
-        if (backend != "cpu" and unrestricted and state.offset == 0
+        if (backend in ("cuda", "taichi", "vulkan", "metal") and unrestricted and state.offset == 0
                 and getattr(p, "sampling_mode", "fair") == "fair"
                 and state.n_once <= 1048576 and p.gpu_raygen):
             from .sampling import _convergence_checkpoint

@@ -15,6 +15,7 @@ class _SceneState:
     surfaces: Tuple[Surface, ...]
     by_id: Mapping[str, Surface]
     revision: int
+    instances: Mapping[str, object]
 
 
 class Scene:
@@ -37,15 +38,24 @@ class Scene:
         self._state = self._make_state(tuple(surfaces), revision)
 
     @staticmethod
-    def _make_state(surfaces, revision):
+    def _make_state(surfaces, revision, previous_instances=None):
         by_id = {}
+        instances = {}
+        previous_instances = {} if previous_instances is None else previous_instances
         for surface in surfaces:
             if not isinstance(surface, Surface):
                 raise TypeError("scene entries must be Surface objects")
             if surface.surface_id in by_id:
                 raise ValueError("surface IDs must be unique: {!r}".format(surface.surface_id))
             by_id[surface.surface_id] = surface
-        return _SceneState(tuple(surfaces), MappingProxyType(by_id), revision)
+            token = previous_instances.get(surface.surface_id)
+            instances[surface.surface_id] = object() if token is None else token
+        return _SceneState(tuple(surfaces), MappingProxyType(by_id), revision,
+                           MappingProxyType(instances))
+
+    def _snapshot(self) -> _SceneState:
+        """Capture geometry and instance identity from the same revision."""
+        return self._state
 
     @classmethod
     def from_meshes(cls, meshes, *, labels: Optional[Mapping[str, str]] = None):
@@ -140,7 +150,7 @@ class Scene:
             raise KeyError(surface.surface_id)
         surfaces = tuple(surface if old.surface_id == surface.surface_id else old
                          for old in state.surfaces)
-        self._state = self._make_state(surfaces, state.revision + int(geometry))
+        self._state = self._make_state(surfaces, state.revision + int(geometry), state.instances)
         return self._state.revision
 
     def update_transform(self, surface_id: str, transform) -> int:
@@ -194,7 +204,7 @@ class Scene:
         self._notify()
         with self.lock:
             state = self._state
-            self._state = self._make_state(state.surfaces + (surface,), state.revision + 1)
+            self._state = self._make_state(state.surfaces + (surface,), state.revision + 1, state.instances)
             return self._state.revision
 
     def remove(self, surface_id: str) -> int:
@@ -205,5 +215,5 @@ class Scene:
             self[surface_id]
             state = self._state
             surfaces = tuple(surface for surface in state.surfaces if surface.surface_id != surface_id)
-            self._state = self._make_state(surfaces, state.revision + 1)
+            self._state = self._make_state(surfaces, state.revision + 1, state.instances)
             return self._state.revision

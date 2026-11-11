@@ -3,11 +3,18 @@ from __future__ import annotations
 
 import importlib.util
 
+NATIVE_DEVICES = ("native-builtin", "embree", "vulkan-rt")
+DEVICES = ("auto", "gpu", "cpu", "cuda", "taichi", "vulkan", "metal") + NATIVE_DEVICES
+
 
 def resolve_backend(device: str = "auto") -> str:
     mode = (device or "auto").lower()
-    if mode not in ("auto", "gpu", "cpu", "cuda", "taichi", "vulkan", "metal"):
-        raise ValueError("device must be auto, gpu, cpu, cuda, taichi, vulkan, or metal")
+    if mode not in DEVICES:
+        raise ValueError(f"device must be one of {', '.join(DEVICES)}")
+    if mode in NATIVE_DEVICES:
+        from .native import native_library
+        native_library(mode)
+        return mode
     if mode == "cpu":
         return "cpu"
     if mode in ("taichi", "vulkan", "metal"):

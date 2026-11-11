@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from .devices import resolve_backend
+from .devices import NATIVE_DEVICES, resolve_backend
 
 
 @dataclass(frozen=True)
@@ -120,10 +120,12 @@ def _calibrate(prepared, params, *, include_matrix, include_sky, discrete,
     if emitter is None:
         return ExecutionPlan("cpu" if mode == "auto" else resolve_backend(mode),
                              params.ray_batch_size, reason="no nonempty selected emitters")
-    from ..engine.sampling import _select_bvh
-    use_bvh = _select_bvh(params.bvh, prepared.total_faces)
-    scene = (prepared.get_instanced_scene() if getattr(prepared, "acceleration", None) == "instanced"
-             else prepared.get_scene(use_bvh=use_bvh))
+    scene = None
+    if mode not in NATIVE_DEVICES:
+        from ..engine.sampling import _select_bvh
+        use_bvh = _select_bvh(params.bvh, prepared.total_faces)
+        scene = (prepared.get_instanced_scene() if getattr(prepared, "acceleration", None) == "instanced"
+                 else prepared.get_scene(use_bvh=use_bvh))
     maximum = max(1, min(n_once, max_probe_rays, params.ray_batch_size))
     sizes = sorted({min(maximum, size) for size in (1024, 4096, 16384, maximum)}, reverse=True)
     measurements, failures, warmup_rays = [], {}, 0

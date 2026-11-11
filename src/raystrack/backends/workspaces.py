@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 from ..utils.ray_builder import build_rays
 from ..utils.cpu_trace import (trace_cpu_combined, trace_cpu_bvh_combined, reduce_first_hits, bin_tregenza_cpu, count_upward_misses_cpu)
+from .devices import NATIVE_DEVICES
 
 def _build(emitter, rays, orig, dirs, cp_grid, cp_dims, offset=0):
     build_rays(emitter.u_grid, emitter.v_grid, emitter.halton_tri,
@@ -18,7 +19,7 @@ class _CpuWorkspace:
 
     def trace(self, scene, emitter, n_surf, *, rays, cp_grid, cp_dims,
               surf_active, emit_sid, discrete, include_sky, ray_count,
-              ray_offset=0, **unused):
+              ray_offset=0, min_sid=0, **unused):
         if ray_count > self.capacity or self.capacity == 0:
             self.capacity = max(1, ray_count)
             self.orig = np.empty((self.capacity, 3), np.float32)
@@ -29,17 +30,7 @@ class _CpuWorkspace:
         orig, dirs = self.orig[:ray_count], self.dirs[:ray_count]
         hit, front, mask = self.hit[:ray_count], self.front[:ray_count], self.mask[:ray_count]
         _build(emitter, rays, orig, dirs, cp_grid, cp_dims, ray_offset)
-        if getattr(scene, "instanced", False):
-            from ..utils.cpu_trace import trace_cpu_instanced_combined
-            trace_cpu_instanced_combined(orig, dirs, scene, surf_active, emit_sid, 0, hit, front, mask)
-        elif scene.use_bvh:
-            args = (orig, dirs, scene.v0, scene.e1, scene.e2, scene.normals, scene.sid, surf_active)
-            trace_cpu_bvh_combined(*args, scene.bb_min, scene.bb_max, scene.left,
-                                   scene.right, scene.start, scene.count,
-                                   emit_sid, 0, hit, front, mask)
-        else:
-            args = (orig, dirs, scene.v0, scene.e1, scene.e2, scene.normals, scene.sid, surf_active)
-            trace_cpu_combined(*args, emit_sid, 0, hit, front, mask)
+        self._trace_rays(scene, orig, dirs, surf_active, emit_sid, min_sid, hit, front, mask)
         hf, hb = np.zeros(n_surf, np.int64), np.zeros(n_surf, np.int64)
         reduce_first_hits(hit, front, hf, hb)
         sky = np.zeros(145 if discrete else 1, np.int64)
@@ -50,11 +41,49 @@ class _CpuWorkspace:
                 sky[0] = count_upward_misses_cpu(dirs, mask)
         return hf, hb, sky
 
+    def _trace_rays(self, scene, orig, dirs, active, excluded, minimum, hit, front, mask):
+        if getattr(scene, "instanced", False):
+            from ..utils.cpu_trace import trace_cpu_instanced_combined
+            trace_cpu_instanced_combined(orig, dirs, scene, active, excluded, minimum, hit, front, mask)
+        elif scene.use_bvh:
+            args = (orig, dirs, scene.v0, scene.e1, scene.e2, scene.normals, scene.sid, active)
+            trace_cpu_bvh_combined(*args, scene.bb_min, scene.bb_max, scene.left,
+                                   scene.right, scene.start, scene.count,
+                                   excluded, minimum, hit, front, mask)
+        else:
+            args = (orig, dirs, scene.v0, scene.e1, scene.e2, scene.normals, scene.sid, active)
+            trace_cpu_combined(*args, excluded, minimum, hit, front, mask)
+
     def trace_many(self, prepared, emitter_index, scene, emitter, n_surf, specs, **options):
         """Use the common replicate interface with reusable CPU ray buffers."""
         return [self.trace(scene, emitter, n_surf, cp_grid=grid, cp_dims=dims,
                            ray_count=count, ray_offset=offset, **options)
                 for grid, dims, count, offset in specs]
+
+
+class _NativeWorkspace(_CpuWorkspace):
+    """Retain a committed native scene between batches and stationary runs."""
+
+    def __init__(self, backend):
+        super().__init__()
+        self.backend = backend
+        self.geometry = None
+        self.version = None
+
+    def trace_many(self, prepared, emitter_index, scene, emitter, n_surf, specs, **options):
+        if not specs:
+            return []
+        if self.version != prepared.version:
+            from .native import NativeGeometry
+            if self.geometry is None:
+                self.geometry = NativeGeometry(self.backend, prepared.meshes)
+            else:
+                self.geometry.update(prepared.meshes)
+            self.version = prepared.version
+        return super().trace_many(prepared, emitter_index, self.geometry, emitter, n_surf, specs, **options)
+
+    def _trace_rays(self, scene, orig, dirs, active, excluded, minimum, hit, front, mask):
+        scene.longwave(orig, dirs, active, excluded, minimum, hit, front, mask)
 
 
 class _CudaWorkspace:
@@ -170,6 +199,9 @@ def workspace_for(prepared, backend, cfg):
         cache = prepared._execution_workspace_cache = {}
     if backend == "cpu":
         key, factory = "cpu", _CpuWorkspace
+    elif backend in NATIVE_DEVICES:
+        key = backend
+        factory = lambda: _NativeWorkspace(backend)
     elif backend == "cuda":
         from numba import cuda
         key = ("cuda", *prepared._cuda_key(cuda), cfg.cuda_async)

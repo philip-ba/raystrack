@@ -1,0 +1,59 @@
+#version 460
+#extension GL_EXT_ray_query : require
+
+layout(local_size_x = 64) in;
+
+struct Ray {
+    vec4 origin_and_min;
+    vec4 direction_and_max;
+};
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT scene;
+layout(set = 0, binding = 1, std430) readonly buffer Rays {
+    Ray rays[];
+};
+layout(set = 0, binding = 2, std430) writeonly buffer Intersections {
+    uint hits[];
+};
+layout(push_constant) uniform Batch {
+    uint count;
+    uint any_hit;
+};
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= count) {
+        return;
+    }
+    Ray ray = rays[index];
+    uint flags = gl_RayFlagsOpaqueEXT;
+    if (any_hit != 0) {
+        flags |= gl_RayFlagsTerminateOnFirstHitEXT;
+    }
+    rayQueryEXT query;
+    rayQueryInitializeEXT(query, scene, flags, 0xffu,
+        ray.origin_and_min.xyz, ray.origin_and_min.w,
+        ray.direction_and_max.xyz, ray.direction_and_max.w);
+    while (rayQueryProceedEXT(query)) {
+        // All scene triangles are opaque to the query. Transport applies materials.
+    }
+    bool found = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionTriangleEXT;
+    if (any_hit != 0) {
+        hits[index] = found ? 1u : 0u;
+        return;
+    }
+
+    uint first = 4 * index;
+    if (found) {
+        vec2 uv = rayQueryGetIntersectionBarycentricsEXT(query, true);
+        hits[first] = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
+        hits[first + 1] = floatBitsToUint(rayQueryGetIntersectionTEXT(query, true));
+        hits[first + 2] = floatBitsToUint(uv.x);
+        hits[first + 3] = floatBitsToUint(uv.y);
+    } else {
+        hits[first] = 0xffffffffu;
+        hits[first + 1] = 0;
+        hits[first + 2] = 0;
+        hits[first + 3] = 0;
+    }
+}
